@@ -1,0 +1,67 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Option B — Dashboard Hub</title>
+<style>
+  :root{--bg:#0c0f14;--panel:#141922;--panel2:#1b2330;--ink:#eaf0f7;--muted:#8395a8;--accent:#2ee6a6;--accent2:#3aa0ff;--border:#222b38}
+  *{box-sizing:border-box;margin:0}
+  body{background:#05070a;color:var(--ink);font:16px/1.45 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif;display:flex;justify-content:center;padding:20px}
+  .phone{width:390px;max-width:100%;background:var(--bg);border-radius:28px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5);border:1px solid #161e29;min-height:800px;position:relative;padding-bottom:74px}
+  .body{padding:18px 16px}
+  .hello{font-size:13px;color:var(--muted)}
+  .h1{font-size:22px;font-weight:700;margin:2px 0 14px}
+  .ring-card{background:radial-gradient(120% 120% at 0% 0%,#15323a,#121826);border:1px solid var(--border);border-radius:18px;padding:16px;display:flex;gap:14px;align-items:center;margin-bottom:14px}
+  .ring{width:84px;height:84px;flex:none;border-radius:50%;background:conab;display:grid;place-items:center;
+    background:conic-gradient(var(--accent) 0 62%,#22303f 62% 100%);position:relative}
+  .ring::after{content:"";position:absolute;inset:9px;border-radius:50%;background:#0f151e}
+  .ring span{position:relative;z-index:1;font-weight:700;font-size:18px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+  .tile{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:13px}
+  .tile .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .tile .v{font-size:24px;font-weight:700;margin-top:3px}
+  .tile .d{font-size:12px;margin-top:2px}
+  .up{color:#2ee6a6}.down{color:#ff6b6b}
+  .spark{height:26px;margin-top:6px}
+  .sec{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:6px 0 8px}
+  .session{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:15px}
+  .session .row{display:flex;justify-content:space-between;align-items:center}
+  .tag{font-size:11px;background:rgba(46,230,166,.16);color:var(--accent);padding:3px 9px;border-radius:999px}
+  .mini{font-size:13px;color:var(--muted);margin:3px 0}
+  .btn{display:block;width:100%;border:none;border-radius:12px;padding:13px;margin-top:12px;background:linear-gradient(90deg,var(--accent),var(--accent2));color:#04121d;font-weight:700}
+  .nav{position:absolute;bottom:0;left:0;right:0;display:flex;background:#0f141c;border-top:1px solid var(--border)}
+  .nav a{flex:1;text-align:center;padding:11px 2px;color:var(--muted);font-size:10px;text-decoration:none}
+  .nav a.on{color:var(--accent)}.nav .ic{display:block;font-size:18px}
+</style></head><body>
+<div class="phone">
+  <div class="body">
+    <div class="hello">Tuesday · Phase 1, week 5</div>
+    <div class="h1">Morning, Julian 🏊</div>
+    <div class="ring-card">
+      <div class="ring"><span>62%</span></div>
+      <div>
+        <div style="font-weight:700">Sprint Development</div>
+        <div class="mini">1 of 2 gates met — sprint SWOLF ✓</div>
+        <div class="mini">Next gate: 25m 16.6 → <b style="color:var(--ink)">16.0s</b></div>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="tile"><div class="k">Best 25m</div><div class="v">16.6s</div><div class="d up">▼ 0.2 vs last</div>
+        <svg class="spark" viewBox="0 0 100 26"><polyline points="0,20 20,18 40,15 60,12 80,9 100,7" fill="none" stroke="#2ee6a6" stroke-width="2.5"/></svg></div>
+      <div class="tile"><div class="k">Avg SWOLF</div><div class="v">30</div><div class="d up">▼ 1</div>
+        <svg class="spark" viewBox="0 0 100 26"><polyline points="0,6 20,9 40,11 60,14 80,16 100,19" fill="none" stroke="#2ee6a6" stroke-width="2.5"/></svg></div>
+      <div class="tile"><div class="k">DPS</div><div class="v">3.5m</div><div class="d up">▲ 0.1</div></div>
+      <div class="tile"><div class="k">50m equiv</div><div class="v">35.5s</div><div class="d up">▼ 1.0</div></div>
+    </div>
+    <div class="sec">Today's session</div>
+    <div class="session">
+      <div class="row"><strong>Sprint · Block 2 S3</strong><span class="tag">1,700m</span></div>
+      <div class="mini">Warm-up 400 · Sprint main 10×25 · Race sim 6×50 · Cool-down 300</div>
+      <div class="mini">🎯 beat 16.8s · SWOLF 23 · 7 strokes</div>
+      <button class="btn">View &amp; log session</button>
+    </div>
+  </div>
+  <nav class="nav">
+    <a class="on"><span class="ic">▦</span>Today</a><a><span class="ic">✍︎</span>Log</a>
+    <a><span class="ic">✦</span>Feedback</a><a><span class="ic">📈</span>Graphs</a>
+    <a><span class="ic">≣</span>History</a><a><span class="ic">⚙︎</span>More</a>
+  </nav>
+</div></body></html>

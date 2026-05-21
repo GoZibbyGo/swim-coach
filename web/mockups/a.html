@@ -1,0 +1,57 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Option A — Refined Dark Cards</title>
+<style>
+  :root{--bg:#10141b;--panel:#171d27;--panel2:#1e2632;--ink:#e9eef5;--muted:#93a4b7;--accent:#38a8f0;--accentd:#0e3c63;--good:#39c878;--border:#27313f}
+  *{box-sizing:border-box;margin:0}
+  body{background:#06090d;color:var(--ink);font:16px/1.5 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif;display:flex;justify-content:center;padding:20px}
+  .phone{width:390px;max-width:100%;background:var(--bg);border-radius:28px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5);border:1px solid #1c2530;min-height:780px;position:relative;padding-bottom:74px}
+  .hdr{background:linear-gradient(180deg,var(--accentd),#0a2c49);padding:18px 18px 16px;display:flex;justify-content:space-between;align-items:center}
+  .hdr h1{font-size:17px}
+  .pill{font-size:11px;padding:3px 10px;border-radius:999px;background:rgba(255,255,255,.12);color:#cfe7fa}
+  .body{padding:16px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:16px;margin-bottom:14px}
+  .muted{color:var(--muted)}
+  h3{font-size:15px;margin:14px 0 6px}
+  .label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .big{font-size:30px;font-weight:700;letter-spacing:-.02em}
+  .gate{display:flex;align-items:center;gap:8px;font-size:13px;margin:5px 0}
+  .dot{width:18px;height:18px;border-radius:50%;display:inline-grid;place-items:center;font-size:11px}
+  .ok{background:rgba(57,200,120,.18);color:var(--good)}
+  .no{background:#222c39;color:var(--muted)}
+  .btn{display:block;width:100%;border:none;border-radius:12px;padding:14px;background:var(--accent);color:#04121d;font-weight:700;font-size:15px}
+  .set{border-left:3px solid var(--accent);padding:8px 12px;margin:8px 0;background:var(--panel2);border-radius:0 10px 10px 0}
+  .set b{font-size:14px}
+  .cue{color:var(--muted);font-size:13px;margin-top:3px}
+  .target{font-size:12px;color:var(--accent);margin-top:4px}
+  .nav{position:absolute;bottom:0;left:0;right:0;display:flex;background:var(--panel);border-top:1px solid var(--border)}
+  .nav a{flex:1;text-align:center;padding:11px 2px;color:var(--muted);font-size:10px;text-decoration:none}
+  .nav a.on{color:var(--accent)}
+  .nav .ic{display:block;font-size:18px;margin-bottom:1px}
+</style></head><body>
+<div class="phone">
+  <div class="hdr"><h1>🏊 Swim Coach</h1><span class="pill">Phase 1 · wk 5</span></div>
+  <div class="body">
+    <div class="card">
+      <div class="label">Phase 1 — Sprint Development</div>
+      <div class="muted" style="font-size:13px;margin:4px 0 10px">Advance gate: 25m ≤16.0s · sprint SWOLF ≤23</div>
+      <div class="gate"><span class="dot no">⬜</span> Best 25m <b>16.6s</b> <span class="muted">→ 16.0</span></div>
+      <div class="gate"><span class="dot ok">✓</span> Sprint SWOLF <b>23</b> <span class="muted">→ 23</span></div>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <strong>Block 2 · Session 3 — Sprint</strong><span class="pill" style="background:var(--accentd);color:#cfe7fa">1,700m</span>
+      </div>
+      <p class="muted" style="font-size:13px">Generated · awaiting log</p>
+      <div class="set"><b>Warm-Up — 400m</b><div>4×100m easy</div><div class="cue">Relaxed and long, count your strokes.</div></div>
+      <div class="set"><b>Sprint Main Set — 250m</b><div>10×25m max · 2 min rest</div><div class="target">Target: beat 16.8s · SWOLF 23 · 7 strokes</div><div class="cue">No breath first 10m. Explode off the wall.</div></div>
+      <div class="set"><b>Cool-Down — 300m</b><div>12×25m every-5 breathing</div><div class="cue">Hold the every-5 the whole way.</div></div>
+    </div>
+    <button class="btn">Log this session</button>
+  </div>
+  <nav class="nav">
+    <a class="on"><span class="ic">🏠</span>Today</a><a><span class="ic">✍️</span>Log</a>
+    <a><span class="ic">💬</span>Feedback</a><a><span class="ic">📈</span>Graphs</a>
+    <a><span class="ic">🗂️</span>History</a><a><span class="ic">⚙️</span>Settings</a>
+  </nav>
+</div></body></html>

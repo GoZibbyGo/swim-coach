@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0c0f14" />
+  <title>Swim Coach</title>
+  <!-- Installable PWA: manifest + icon. Inter is now self-hosted (see styles.css), so no font CDN. -->
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="./icons/icon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Swim Coach" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>🏊 Swim Coach</h1>
+    <span id="syncState" class="sync-state">local</span>
+  </header>
+
+  <div id="banner" class="banner hidden"></div>
+
+  <main id="view" class="view"><!-- screen content --></main>
+
+  <nav class="tabbar">
+    <button class="tab" data-screen="today">Today</button>
+    <button class="tab" data-screen="log">Log</button>
+    <button class="tab" data-screen="feedback">Feedback</button>
+    <button class="tab" data-screen="graphs">Graphs</button>
+    <button class="tab" data-screen="history">History</button>
+    <button class="tab" data-screen="settings">Settings</button>
+  </nav>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

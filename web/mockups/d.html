@@ -1,0 +1,53 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Option D — Bold Gradient</title>
+<style>
+  :root{--bg:#0b0a16;--panel:#171527;--panel2:#201d36;--ink:#f3f0ff;--muted:#a59dc6;--g1:#7b5cff;--g2:#ff5ca8;--accent:#19e3c4;--border:#2a2742}
+  *{box-sizing:border-box;margin:0}
+  body{background:#050409;color:var(--ink);font:16px/1.45 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif;display:flex;justify-content:center;padding:20px}
+  .phone{width:390px;max-width:100%;background:var(--bg);border-radius:30px;overflow:hidden;box-shadow:0 24px 70px rgba(123,92,255,.25);border:1px solid #1e1b30;min-height:800px;position:relative;padding-bottom:76px}
+  .hero{background:linear-gradient(135deg,var(--g1),var(--g2));padding:22px 20px 30px;border-radius:0 0 26px 26px;position:relative;overflow:hidden}
+  .hero::after{content:"";position:absolute;right:-40px;top:-40px;width:160px;height:160px;border-radius:50%;background:rgba(255,255,255,.12)}
+  .hero .t{font-size:13px;opacity:.9}
+  .hero .big{font-size:40px;font-weight:800;letter-spacing:-.03em;line-height:1.05;margin:6px 0 2px}
+  .hero .sub{font-size:13px;opacity:.92}
+  .chips{display:flex;gap:8px;margin-top:14px}
+  .chip{background:rgba(255,255,255,.18);border-radius:999px;padding:5px 12px;font-size:12px;font-weight:600}
+  .body{padding:16px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:18px;padding:16px;margin-bottom:14px}
+  .muted{color:var(--muted)}
+  .row{display:flex;justify-content:space-between;align-items:center}
+  .badge{font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;background:linear-gradient(90deg,var(--g1),var(--g2));color:#fff}
+  .set{margin:10px 0}
+  .set b{font-size:14px}
+  .set .s{font-size:13px;color:var(--muted)}
+  .set .cue{font-size:13px;color:#c8c1e6;margin-top:2px}
+  .tgt{display:inline-block;margin-top:5px;font-size:12px;font-weight:700;color:#04121d;background:var(--accent);padding:3px 9px;border-radius:7px}
+  .btn{display:block;width:100%;border:none;border-radius:14px;padding:15px;background:linear-gradient(90deg,var(--g1),var(--g2));color:#fff;font-weight:800;font-size:15px;box-shadow:0 8px 24px rgba(255,92,168,.3)}
+  .nav{position:absolute;bottom:0;left:0;right:0;display:flex;background:#100e1c;border-top:1px solid var(--border)}
+  .nav a{flex:1;text-align:center;padding:11px 2px;color:var(--muted);font-size:10px;text-decoration:none}
+  .nav a.on{color:var(--accent)}.nav .ic{display:block;font-size:18px}
+</style></head><body>
+<div class="phone">
+  <div class="hero">
+    <div class="t">PHASE 1 · SPRINT DEVELOPMENT</div>
+    <div class="big">16.6s</div>
+    <div class="sub">best 25m · 0.6s from your next gate (16.0)</div>
+    <div class="chips"><span class="chip">SWOLF 30</span><span class="chip">✓ sprint SWOLF</span><span class="chip">50m 35.5</span></div>
+  </div>
+  <div class="body">
+    <div class="card">
+      <div class="row"><strong>Block 2 · Session 3 — Sprint</strong><span class="badge">1,700m</span></div>
+      <p class="muted" style="font-size:13px;margin-top:4px">Generated · awaiting log</p>
+      <div class="set"><b>Warm-Up — 400m</b><div class="s">4×100m easy</div><div class="cue">Relaxed and long, count your strokes.</div></div>
+      <div class="set"><b>Sprint Main Set — 250m</b><div class="s">10×25m max · 2 min rest</div><span class="tgt">beat 16.8s · SWOLF 23</span><div class="cue">No breath first 10m. Explode off the wall.</div></div>
+      <div class="set"><b>Cool-Down — 300m</b><div class="s">12×25m every-5 breathing</div><div class="cue">Hold the every-5 the whole way.</div></div>
+    </div>
+    <button class="btn">LOG THIS SESSION</button>
+  </div>
+  <nav class="nav">
+    <a class="on"><span class="ic">⬡</span>Today</a><a><span class="ic">✍</span>Log</a>
+    <a><span class="ic">✨</span>Feedback</a><a><span class="ic">📊</span>Graphs</a>
+    <a><span class="ic">🗄</span>History</a><a><span class="ic">⚙</span>Settings</a>
+  </nav>
+</div></body></html>

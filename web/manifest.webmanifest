@@ -1,0 +1,16 @@
+{
+  "name": "Swim Coach",
+  "short_name": "Swim Coach",
+  "description": "Personal swim-coaching app — generate sessions, log results, track progress.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0c0f14",
+  "theme_color": "#0c0f14",
+  "icons": [
+    { "src": "./icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "./icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

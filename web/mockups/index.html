@@ -1,0 +1,47 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Swim Coach — Layout Options</title>
+<style>
+  *{box-sizing:border-box;margin:0}
+  body{background:#0a0d12;color:#e9eef5;font:16px/1.5 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif;padding:24px}
+  h1{font-size:24px;margin-bottom:4px}
+  .lead{color:#93a4b7;margin-bottom:24px;max-width:760px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:24px}
+  .opt{background:#121821;border:1px solid #27313f;border-radius:16px;padding:16px}
+  .opt h2{font-size:18px}
+  .opt p{color:#93a4b7;font-size:14px;margin:6px 0 12px}
+  .frameWrap{display:flex;justify-content:center;background:#06090d;border-radius:12px;padding:10px;overflow:hidden}
+  iframe{width:390px;height:600px;border:none;border-radius:18px;transform:scale(.86);transform-origin:top center}
+  .links{margin-top:10px}
+  a.open{display:inline-block;color:#38a8f0;text-decoration:none;font-weight:600;font-size:14px}
+  .tag{font-size:11px;color:#8395a8;text-transform:uppercase;letter-spacing:.05em}
+</style></head><body>
+  <h1>🏊 Swim Coach — layout options</h1>
+  <p class="lead">Four visual directions for the same app (same tabs &amp; data — only the look differs). These are non-functional mockups of the <b>Today</b> screen. Open each fullscreen to view properly, then tell me which direction (or mix) you like.</p>
+  <div class="grid">
+    <div class="opt">
+      <span class="tag">Option A</span><h2>Refined Dark Cards</h2>
+      <p>A polish of what you have now: calm dark-grey panels, blue accent, soft cards, blue header. Familiar, restrained, easy to read.</p>
+      <div class="frameWrap"><iframe src="./a.html"></iframe></div>
+      <div class="links"><a class="open" href="./a.html" target="_blank">Open A fullscreen ↗</a></div>
+    </div>
+    <div class="opt">
+      <span class="tag">Option B</span><h2>Dashboard Hub</h2>
+      <p>An at-a-glance home: a progress ring, metric tiles with sparklines (best 25m, SWOLF, DPS, 50m), then the session. Data-forward, Garmin/Whoop feel.</p>
+      <div class="frameWrap"><iframe src="./b.html"></iframe></div>
+      <div class="links"><a class="open" href="./b.html" target="_blank">Open B fullscreen ↗</a></div>
+    </div>
+    <div class="opt">
+      <span class="tag">Option C</span><h2>Light &amp; Minimal</h2>
+      <p>Light theme, big type, generous whitespace, thin dividers, one accent. Clean and editorial — Apple Health / Notion feel.</p>
+      <div class="frameWrap"><iframe src="./c.html"></iframe></div>
+      <div class="links"><a class="open" href="./c.html" target="_blank">Open C fullscreen ↗</a></div>
+    </div>
+    <div class="opt">
+      <span class="tag">Option D</span><h2>Bold Gradient</h2>
+      <p>Energetic gradient hero with a big headline number, vibrant accents, punchy CTA. Strava / Nike Run Club feel.</p>
+      <div class="frameWrap"><iframe src="./d.html"></iframe></div>
+      <div class="links"><a class="open" href="./d.html" target="_blank">Open D fullscreen ↗</a></div>
+    </div>
+  </div>
+</body></html>

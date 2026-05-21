@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Swim Coach">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2ee6a6"/>
+      <stop offset="1" stop-color="#3aa0ff"/>
+    </linearGradient>
+  </defs>
+  <!-- Full-bleed background so any OS mask (circle/squircle) shows brand colour to the edge. -->
+  <rect width="512" height="512" fill="url(#g)"/>
+  <!-- Swimmer head + content kept within the maskable safe zone (central ~80%). -->
+  <circle cx="196" cy="180" r="34" fill="#0c1622"/>
+  <g fill="none" stroke="#0c1622" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+    <!-- water -->
+    <path d="M112 250 q36 -32 72 0 t72 0 t72 0 t72 0"/>
+    <path d="M112 312 q36 -32 72 0 t72 0 t72 0 t72 0"/>
+  </g>
+</svg>

@@ -1,0 +1,10 @@
+{
+  "name": "swimming-coach-app",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Personal swim coaching system — deterministic session generator and logger for Julian.",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  }
+}
