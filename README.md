@@ -62,10 +62,22 @@ Node 18+ (developed on v24). No npm dependencies.
 - Mockups for design choices live in `web/mockups/` (layout options a–d, font options).
 
 ## Done
-Engine (all modules, 189 tests). Web app: Today/Log/Feedback/Graphs/History/Settings. Phases 1–3 block-based. Demo. Live Gemini verified. **GitHub sync** (pull/push catalogue to a private repo; auto-pull on open; auto-push; conflict resolution; live 401 path verified against api.github.com). **PWA / offline** (manifest + maskable icon; root-scoped service worker precaching all 29 shell files; self-hosted Inter + Chart.js — verified: SW active, full cache populated, font + charts load, every shell asset served from cache).
+Engine (all modules, 189 tests). Web app: Today/Log/Feedback/Graphs/History/Settings. Phases 1–3 block-based. Demo. Live Gemini verified. **GitHub sync** (pull/push catalogue to a private repo; auto-pull on open; auto-push; conflict resolution; live 401 path verified against api.github.com). **PWA / offline** (manifest + maskable icon; root-scoped service worker precaching all 29 shell files; self-hosted Inter + Chart.js — verified: SW active, full cache populated, font + charts load, every shell asset served from cache). **Deploy-ready** (path-agnostic — relative SW registration via `import.meta.url` + relative precache, root `index.html` redirect → `./web/`, `.nojekyll`; local git repo initialised on `main`).
 
-## Remaining (next slices)
-1. **Hosting/deploy** — publish to free hosting (GitHub Pages / Cloudflare Pages) so the Pixel phone can reach it (localhost only serves the dev machine). **Note for this slice:** the SW is root-scoped and the app imports `/src/*` from outside `/web/`, so the deploy must keep `/web/`, `/src/`, `/knowledge/`, `/sw.js`, and `/manifest`+icons all reachable from the same origin root (e.g. publish the whole app dir, or restructure so `src/` sits under the served root). Absolute paths (`/sw.js`, precache `/web/…` & `/src/…`) assume serving from the domain root — a project sub-path (e.g. `user.github.io/repo/`) would break them.
+## Remaining
+All build slices are complete. To go live, follow **Deploy** below (operational: create a GitHub repo, push, enable Pages — no code left to write).
+
+## Deploy (GitHub Pages)
+The app is path-agnostic, so a project sub-path (`user.github.io/swim-coach/`) works. Pages output is **public** even from a private repo (the public seed catalogue was a deliberate choice — see the seed note).
+1. **Create a repo** at <https://github.com/new> (e.g. `swim-coach`, public or private). Do **not** add a README/.gitignore (this dir already has a commit).
+2. **Push** from this dir:
+   ```
+   git remote add origin https://github.com/<you>/swim-coach.git
+   git push -u origin main
+   ```
+3. **Enable Pages**: repo → Settings → Pages → Source **Deploy from a branch** → branch `main`, folder `/ (root)` → Save. Wait ~1–2 min.
+4. **Open** `https://<you>.github.io/swim-coach/` (username lowercased) → redirects to `…/web/`. In Chrome (Pixel) use ⋮ → **Install app / Add to Home screen**.
+5. **Updating later**: commit + push changes, and **bump `CACHE`** in `sw.js` (`swimcoach-v1`→`v2`…) whenever a precached file changed, so the service worker re-fetches the new shell.
 
 ### GitHub sync — setup notes
 - Create a **private** repo (e.g. `swim-catalogue`) and a **fine-grained PAT** scoped to it with **Contents: read & write**. Enter token + owner + repo in Settings → GitHub sync; path defaults to `catalogue.json`, branch to `main`. "Save & test" hits `GET /repos/{owner}/{repo}`.
