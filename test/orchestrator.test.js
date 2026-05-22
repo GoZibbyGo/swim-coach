@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { generateSession } from '../src/orchestrator.js';
+import { generateSession, buildPrompt } from '../src/orchestrator.js';
 
 function catalogue() {
   return {
@@ -137,4 +137,33 @@ test('non-JSON LLM response → retries then falls back', async () => {
   const r = await generateSession(catalogue(), { apiKey: 'k', callGeminiFn: geminiReturning('not json at all') });
   assert.equal(r.status, 'fallback');
   assert.equal(r.fallback_reason, 'validation_failed');
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// Equipment availability (pre-session checkboxes)
+
+const decision = { subtype: 'sprint', type: 'pool', block_number: 2, session_in_block: 3, active_flags: [] };
+
+test('buildPrompt lists available equipment when given', () => {
+  const { userPrompt } = buildPrompt(decision, catalogue(), {}, { equipmentAvailable: ['rings', 'paddles'] });
+  assert.match(userPrompt, /Available equipment:/);
+  assert.match(userPrompt, /gymnastic rings/);
+  assert.match(userPrompt, /paddles/);
+});
+
+test('buildPrompt states "no equipment" explicitly for an empty list', () => {
+  const { userPrompt } = buildPrompt(decision, catalogue(), {}, { equipmentAvailable: [] });
+  assert.match(userPrompt, /No equipment available/);
+});
+
+test('buildPrompt omits the equipment line when availability is unspecified', () => {
+  const { userPrompt } = buildPrompt(decision, catalogue(), {}, {});
+  assert.doesNotMatch(userPrompt, /Available equipment|No equipment available/);
+});
+
+test('generateSession forwards equipment availability into the LLM prompt', async () => {
+  let captured = '';
+  const callFn = async (args) => { captured = args.userPrompt; return { ok: true, text: validLlmJson }; };
+  await generateSession(catalogue(), { apiKey: 'k', callGeminiFn: callFn, equipmentAvailable: ['rings'] });
+  assert.match(captured, /Available equipment:.*gymnastic rings/);
 });

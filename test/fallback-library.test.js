@@ -129,3 +129,38 @@ test('dryland fallback falls back to bodyweight when no equipment known', () => 
   const { template_id } = buildFallbackSession(decision, cat, {});
   assert.equal(template_id, 'dryland_bodyweight');
 });
+
+// ──────────────────────────────────────────────────────────────────────────
+// Pre-session equipment availability (the Today checkboxes)
+
+test('equipmentAvailable picks the dryland template and overrides the catalogue', () => {
+  const decision = { type: 'dryland', subtype: 'pulling_strength', block_number: 2, session_in_block: 2, active_flags: [] };
+  // catalogue() says "bars only", but the explicit availability list wins.
+  const pick = avail => buildFallbackSession(decision, catalogue(), { equipmentAvailable: avail }).template_id;
+  assert.equal(pick(['rings']), 'dryland_rings');
+  assert.equal(pick(['bars']), 'dryland_bars');
+  assert.equal(pick(['rings', 'bars']), 'dryland_rings');   // rings preferred
+  assert.equal(pick(['weights']), 'dryland_bodyweight');     // no dumbbell template → safe bodyweight
+  assert.equal(pick([]), 'dryland_bodyweight');              // nothing available
+});
+
+test('pool pull set equipment is filtered to what is available', () => {
+  const decision = { type: 'pool', subtype: 'technique', block_number: 1, session_in_block: 1, active_flags: [] };
+  // technique_pull_focus is the template with a 'pull buoy + paddles' Pull Set.
+  const pullEquip = avail => {
+    const { session } = buildFallbackSession(decision, catalogue(), {
+      recentTemplateIds: ['technique_efficiency'], equipmentAvailable: avail,
+    });
+    return session.blocks.find(b => b.name === 'Pull Set').sets[0].equipment;
+  };
+  assert.equal(pullEquip(['pull_buoy', 'paddles']), 'pull buoy + paddles');
+  assert.equal(pullEquip(['pull_buoy']), 'pull buoy');       // paddles stripped
+  assert.equal(pullEquip(['paddles']), 'paddles');           // buoy stripped
+  assert.equal(pullEquip([]), undefined);                    // none → plain swim
+});
+
+test('pool templates are untouched when no availability list is given', () => {
+  const decision = { type: 'pool', subtype: 'technique', block_number: 1, session_in_block: 1, active_flags: [] };
+  const { session } = buildFallbackSession(decision, catalogue(), { recentTemplateIds: ['technique_efficiency'] });
+  assert.equal(session.blocks.find(b => b.name === 'Pull Set').sets[0].equipment, 'pull buoy + paddles');
+});

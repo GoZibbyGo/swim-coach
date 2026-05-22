@@ -24,6 +24,23 @@ import { phaseHasSprintFinish } from './phases.js';
 
 function today() { return new Date().toISOString().slice(0, 10); }
 
+// Equipment the athlete can toggle before generating (pre-session checkboxes).
+const EQUIP_LABELS = {
+  paddles: 'paddles', pull_buoy: 'pull buoy', bars: 'pull-up/dip bars',
+  rings: 'gymnastic rings', weights: 'dumbbells/weights',
+};
+function prettyEquipment(list) { return list.map(k => EQUIP_LABELS[k] ?? k).join(', '); }
+
+// One prompt line telling the LLM exactly what's on hand. `undefined` = caller
+// didn't specify (leave the model free); an array (even empty) = honour it.
+function equipmentInstruction(equipmentAvailable) {
+  if (!Array.isArray(equipmentAvailable)) return '';
+  if (equipmentAvailable.length === 0) {
+    return 'No equipment available: plain swimming only (no paddles or pull buoy); any dryland must be bodyweight only.';
+  }
+  return `Available equipment: ${prettyEquipment(equipmentAvailable)}. Only prescribe equipment from this list. If pull buoy or paddles are not listed, write pull/drill sets as plain swimming. For a dryland session use only the listed apparatus (rings / bars / weights); if none are listed, bodyweight only.`;
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // Prompt construction
 // ──────────────────────────────────────────────────────────────────────────
@@ -67,6 +84,7 @@ export function buildPrompt(decision, catalogue, targets, opts = {}) {
     `Block ${decision.block_number}, session ${decision.session_in_block}.`,
     volumeLine,
     structureLine,
+    equipmentInstruction(opts.equipmentAvailable),
     `Rolling bests: best 25m sprint ${rb.best_25m_sprint_protocol_s}s, best SWOLF ${rb.best_avg_swolf}, sprint SWOLF ${rb.best_sprint_swolf}, threshold pace ${rb.best_threshold_pace_per_100m}/100m.`,
     `Targets to embed: ${JSON.stringify(targets)}.`,
     decision.active_flags?.length ? `ACTIVE INJURY FLAGS: ${decision.active_flags.join(', ')}.\nFlag guidance:\n${guidance}` : 'No active injury flags.',
@@ -194,6 +212,7 @@ function fallback(decision, catalogue, targets, opts, meta) {
     date: opts.date ?? today(),
     recentTemplateIds: opts.recentTemplateIds ?? [],
     equipment: opts.equipment,
+    equipmentAvailable: opts.equipmentAvailable,
   });
   const v = validateGeneratedSession(session, { activeFlags: decision.active_flags });
   return {

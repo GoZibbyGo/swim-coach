@@ -79,6 +79,8 @@ input[type=text], input[type=password], textarea, select {
 }
 textarea { min-height: 88px; resize: vertical; }
 input[type=file] { width: 100%; padding: 10px; border-radius: 10px; background: var(--panel-2); color: var(--ink); border: 1px dashed var(--border); font: inherit; }
+.equip { margin: 2px 0 12px; }
+.equip-label { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
 .setrow { gap: 6px; margin: 2px 0 8px; }
 .setbox { width: 58px !important; padding: 9px 6px; text-align: center; }
 .chartwrap { position: relative; height: 200px; margin-top: 8px; }

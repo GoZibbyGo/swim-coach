@@ -366,7 +366,7 @@ export function buildFallbackSession(decision, catalogue, opts = {}) {
   const template = pickTemplate(templates, recentIds, seed);
 
   const blocks = template.blocks.map(b => {
-    const sets = b.sets.map(s => ({ ...s }));
+    const sets = b.sets.map(s => filterSetEquipment({ ...s }, opts.equipmentAvailable));
     const volume_m = sets.reduce((sum, s) => sum + (s.reps ?? 1) * (s.distance_m ?? 0), 0);
     return {
       name: b.name,
@@ -389,7 +389,16 @@ export function buildFallbackSession(decision, catalogue, opts = {}) {
   return { session, template_id: template.id };
 }
 
-function resolveEquipment(catalogue, blockNumber, optEquipment) {
+function resolveEquipment(catalogue, blockNumber, optEquipment, available) {
+  // A pre-session availability list (from the Today checkboxes) wins when given.
+  // Offline fallback stays conservative: weights-only / nothing → bodyweight
+  // (the LLM path uses weights properly; the template library doesn't have a
+  // dumbbell-only session).
+  if (Array.isArray(available)) {
+    if (available.includes('rings')) return 'rings';
+    if (available.includes('bars')) return 'bars';
+    return 'bodyweight';
+  }
   const raw = optEquipment
     ?? catalogue?.weekly_block_tracking?.[`block_${blockNumber}_dryland_equipment`]
     ?? 'bodyweight';
@@ -400,9 +409,22 @@ function resolveEquipment(catalogue, blockNumber, optEquipment) {
   return 'bodyweight';
 }
 
+// When a pre-session availability list is given, downgrade any pool set's
+// `equipment` to only what's on hand (e.g. 'pull buoy + paddles' → 'pull buoy',
+// or remove it entirely → plain swim). No list = leave templates as authored.
+function filterSetEquipment(set, available) {
+  if (!Array.isArray(available) || !set.equipment) return set;
+  const keep = [];
+  if (/buoy/i.test(set.equipment) && available.includes('pull_buoy')) keep.push('pull buoy');
+  if (/paddle/i.test(set.equipment) && available.includes('paddles')) keep.push('paddles');
+  if (keep.length) set.equipment = keep.join(' + ');
+  else delete set.equipment;
+  return set;
+}
+
 function buildFallbackDryland(decision, catalogue, opts) {
   const { block_number = 1, session_in_block = 1, active_flags = [], subtype = 'strength' } = decision ?? {};
-  const equipmentKey = resolveEquipment(catalogue, block_number, opts.equipment);
+  const equipmentKey = resolveEquipment(catalogue, block_number, opts.equipment, opts.equipmentAvailable);
   const template = DRYLAND_TEMPLATES[equipmentKey] ?? DRYLAND_TEMPLATES.bodyweight;
   const quadActive = [...QUAD_FLAGS].some(f => active_flags.includes(f));
 
