@@ -311,10 +311,21 @@ function tilesHtml(catalogue, series) {
   }).join('')}</div>`;
 }
 
+// Known-bad early data: the best-25m readings on/before 2026-04-10 (16.1/16.3s)
+// were faulty — implausibly fast vs. every later session — so they're hidden
+// from the trend visuals (Graphs + the Today sparklines). Display-only: the
+// catalogue itself is untouched and still syncs as-is.
+const TREND_AFTER_DATE = '2026-04-10';
+function trendSeries(catalogue) {
+  return extractMarkerSeries(catalogue)
+    .map(s => ({ ...s, points: s.points.filter(p => p.date > TREND_AFTER_DATE) }))
+    .filter(s => s.points.length > 0);
+}
+
 async function screenToday() {
   const catalogue = await loadCatalogue();
   const pending = getPending();
-  const series = extractMarkerSeries(catalogue);
+  const series = trendSeries(catalogue);
   let pp; try { pp = phaseProgress(catalogue); } catch { pp = null; }
 
   const hello = `<div class="dash-hello">${esc(niceDay())}${pp ? ` · Phase ${pp.phase}` : ''}</div>
@@ -967,7 +978,7 @@ async function renderGraphs() {
   }
 
   const catalogue = await loadCatalogue();
-  const series = extractMarkerSeries(catalogue);
+  const series = trendSeries(catalogue);
   if (!series.length) {
     charts.innerHTML = `<div class="card"><p class="muted">No pool-session data yet. Log some sessions and refresh.</p></div>`;
     return;
