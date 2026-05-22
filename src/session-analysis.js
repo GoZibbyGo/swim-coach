@@ -46,6 +46,7 @@ function breakdownText(session) {
 export function buildAnalysisPrompt(session, catalogue, knowledge) {
   const rb = catalogue?.rolling_bests ?? {};
   const flags = (session.coach_flags ?? []).join('\n- ');
+  const tuning = (catalogue?.llm_tuning ?? '').trim();
 
   const systemPrompt = [
     'You are an expert sprint-freestyle swim coach writing a detailed post-session debrief for the athlete.',
@@ -56,6 +57,7 @@ export function buildAnalysisPrompt(session, catalogue, knowledge) {
     '## 🎯 Coaching Takeaways — the narrative: what the data reveals about where speed/limits come from, how it relates to the phase, and 1–2 concrete action items. Respond directly to the athlete\'s own notes here.',
     'Be specific and use the real numbers. Direct, encouraging coach voice. No preamble before the first heading.',
     knowledge ? `\nDomain context:\n${knowledge.slice(0, 5000)}` : '',
+    tuning ? `\nCoach tuning directives (from a coaching review — apply these to your debrief):\n${tuning}` : '',
   ].filter(Boolean).join('\n');
 
   const userPrompt = [

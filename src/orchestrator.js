@@ -62,10 +62,12 @@ export function buildPrompt(decision, catalogue, targets, opts = {}) {
   const recent = (catalogue?.sessions ?? []).slice(0, 3)
     .map(s => `${s.date} ${s.type}/${s.subtype}`).join('; ');
 
+  const tuning = (catalogue?.llm_tuning ?? '').trim();
   const systemPrompt = [
     'You are an expert sprint-freestyle swim coach generating one training session.',
     'Effort is descriptive (%/RPE/"max") — the watch shows no live pace. Tone: direct, motivating, concise.',
     opts.knowledge ? `\nDomain context:\n${opts.knowledge}` : '',
+    tuning ? `\nCoach tuning directives (from a coaching review — apply these to how you build the session):\n${tuning}` : '',
     `\n${SESSION_CONTRACT}`,
   ].join('\n');
 

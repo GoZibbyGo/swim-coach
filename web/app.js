@@ -10,6 +10,7 @@ import { phaseProgress } from '../src/phases.js';
 import { analyzeSession } from '../src/session-analysis.js';
 import { extractMarkerSeries } from '../src/series.js';
 import { pullCatalogue, pushCatalogue, checkRepo, validateConfig, normalizeConfig } from '../src/github-sync.js';
+import { buildBlockReportMarkdown, extractTuningGuidance } from '../src/block-report.js';
 
 // ── Demo mode ──
 // ?demo uses a completely separate storage namespace + a fake catalogue, so
@@ -188,6 +189,30 @@ async function maybeAutoPull() {
   banner('good', '✓ Pulled the latest catalogue from GitHub.');
 }
 
+// Trigger a client-side file download (no server).
+function downloadText(filename, text, type = 'text/markdown;charset=utf-8') {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Block just completed → offer the analysis export (prepended above the debrief).
+function showBlockFinished(catalogue, blockNumber) {
+  const host = document.getElementById('debrief');
+  if (!host) return;
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.style.borderColor = 'var(--accent)';
+  card.innerHTML = `<strong>🎉 Block ${blockNumber} finished — download for deeper analysis</strong>
+    <p class="muted">This file has the block's prescribed plans + your actual results + feedback. Hand it to your coaching-review Claude project to check the app is generating and analysing well — it returns a tuning file you paste back in Settings → Coaching tuning.</p>
+    <button id="dlBlock" class="block">⬇ Download block ${blockNumber} analysis (.md)</button>`;
+  host.prepend(card);
+  document.getElementById('dlBlock').addEventListener('click', () =>
+    downloadText(`swim-block-${blockNumber}-analysis.md`, buildBlockReportMarkdown(catalogue, blockNumber)));
+}
+
 // ── Minimal, safe Markdown → HTML for our renderer's output ──
 function esc(s) { return String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
 function inline(s) {
@@ -268,7 +293,22 @@ function sparklineSvg(values) {
 }
 
 // Ring shows block progress through the phase; targets shown as progress info.
-function ringCardHtml(pp) {
+// Current-block progress shown as `completed_blocks.sessions_done_this_block`
+// (e.g. "1.2" = 1 block done, 2 sessions into the current block).
+function blockProgress(catalogue, pp) {
+  if (!pp || pp.terminal) return null;
+  const t = catalogue?.weekly_block_tracking ?? {};
+  const done = (t.current_block_pool_count ?? 0) + (t.current_block_dryland_count ?? 0);
+  const total = 4; // 3 pool + 1 dryland
+  return {
+    number: t.current_block_number ?? 1,
+    done, total,
+    next: Math.min(done + 1, total),
+    figure: `${pp.blocks_done}.${done}`,
+  };
+}
+
+function ringCardHtml(pp, bp) {
   if (!pp) return '';
   const deg = Math.round((pp.pct || 0) * 3.6);
   const tgts = (pp.targets || []).map(t =>
@@ -276,11 +316,15 @@ function ringCardHtml(pp) {
      ${esc(t.label)}: <b>${esc(String(t.current ?? '—'))}${esc(t.unit || '')}</b>
      <span class="muted">→ ${esc(String(t.target))}${esc(t.unit || '')}</span></div>`).join('');
   const center = pp.terminal ? '🏁' : `${pp.blocks_done}/${pp.blocks_total}`;
+  const blockLine = bp
+    ? `<div class="line">Progress <b>${bp.figure}</b> — Block ${bp.number}, ${bp.done}/${bp.total} sessions${bp.done < bp.total ? ` · next: session ${bp.next}` : ' · block complete'}</div>`
+    : '';
   return `<div class="ring-card">
     <div class="ring" style="background:conic-gradient(var(--accent) 0 ${deg}deg,#22303f ${deg}deg 360deg)"><span>${center}</span></div>
     <div class="ring-meta">
       <div class="title">Phase ${pp.phase} · ${esc(pp.name)}</div>
       <div class="line">${pp.terminal ? 'Final phase — race attempt' : `Block ${pp.blocks_done} of ${pp.blocks_total}`}</div>
+      ${blockLine}
       ${tgts}
     </div>
   </div>`;
@@ -372,7 +416,7 @@ async function screenToday() {
        <button id="genBtn" class="block">Generate next session</button></div>
        <div id="sessionOut"></div>`;
 
-  view.innerHTML = hello + ringCardHtml(pp) + tilesHtml(catalogue, series) + session;
+  view.innerHTML = hello + ringCardHtml(pp, blockProgress(catalogue, pp)) + tilesHtml(catalogue, series) + session;
   document.getElementById('genBtn')?.addEventListener('click', generate);
   document.getElementById('regenBtn')?.addEventListener('click', generate);
   wireEquipmentBoxes();
@@ -438,6 +482,7 @@ function screenSettings() {
       <button id="clearKey" class="block secondary">Remove key</button>
     </div>
     ${githubCardHtml()}
+    ${tuningCardHtml()}
     <div class="card">
       <strong>Catalogue</strong>
       <p class="muted">Reset clears your local copy and re-seeds from the bundled catalogue.</p>
@@ -466,6 +511,49 @@ function screenSettings() {
     banner('good', 'Local catalogue reset.');
   });
   wireGithubCard();
+  wireTuningCard();
+}
+
+// ── Coaching tuning settings card (auto-applied LLM guidance from a review) ──
+function tuningCardHtml() {
+  const cur = (readCatalogueRaw()?.llm_tuning ?? '').trim();
+  return `<div class="card">
+    <strong>Coaching tuning</strong>
+    <p class="muted">Paste the tuning file your coaching-review Claude project returns (after you hand it a block analysis export). Its “LLM guidance (auto-applied)” section is folded into how sessions and feedback are written. Syncs with your catalogue, so all devices use it.${cur ? '' : ' None active yet.'}</p>
+    ${cur ? `<p class="muted" style="margin-bottom:4px">Active guidance:</p><div class="card" style="background:var(--panel-2);margin:0 0 10px"><pre style="white-space:pre-wrap;margin:0;font:inherit;font-size:13px">${esc(cur)}</pre></div>` : ''}
+    <label>Paste tuning .md</label>
+    <textarea id="tuningInput" placeholder="# Swim Coach Tuning…&#10;## LLM guidance (auto-applied)&#10;…"></textarea>
+    <input type="file" id="tuningFile" accept=".md,.markdown,.txt,text/*" />
+    <button id="applyTuning" class="block">Apply tuning</button>
+    ${cur ? `<button id="clearTuning" class="block secondary">Clear active tuning</button>` : ''}
+  </div>`;
+}
+
+function wireTuningCard() {
+  document.getElementById('tuningFile')?.addEventListener('change', async (ev) => {
+    const f = ev.target.files?.[0];
+    if (!f) return;
+    try { document.getElementById('tuningInput').value = await f.text(); }
+    catch { banner('warn', "Couldn't read that file — paste the text instead."); }
+  });
+  document.getElementById('applyTuning')?.addEventListener('click', () => {
+    const guidance = extractTuningGuidance(document.getElementById('tuningInput').value);
+    if (!guidance) { banner('warn', 'No “LLM guidance (auto-applied)” section found — check the file has that heading.'); return; }
+    const cat = readCatalogueRaw();
+    if (!cat) { banner('bad', 'Open the app first so there’s a catalogue to attach this to.'); return; }
+    cat.llm_tuning = guidance;
+    saveCatalogue(cat);
+    go('settings');
+    banner('good', 'Coaching tuning applied — it’ll shape future sessions and feedback.');
+  });
+  document.getElementById('clearTuning')?.addEventListener('click', () => {
+    const cat = readCatalogueRaw();
+    if (!cat) return;
+    delete cat.llm_tuning;
+    saveCatalogue(cat);
+    go('settings');
+    banner('good', 'Coaching tuning cleared.');
+  });
 }
 
 // ── GitHub sync settings card ──
@@ -805,6 +893,7 @@ async function submitLog() {
       input.source = 'app_generated';
       input.type = s.type;
       input.subtype = s.subtype;
+      input.planned = s; // keep the prescribed plan on the record (for block analysis export)
       if (s.type === 'pool') {
         const file = document.getElementById('csvFile')?.files?.[0];
         if (!file) { banner('bad', 'Add the Garmin CSV for this pool session.'); btn.disabled = false; return; }
@@ -845,7 +934,8 @@ async function submitLog() {
     saveCatalogue(r.catalogue);
     if (isPlanned) clearPending(); // unblocks generating the next session
     renderDebrief(r);
-    banner('good', 'Session logged and saved locally.' + (isPlanned ? ' You can generate the next session now.' : ''));
+    if (r.block_completed) showBlockFinished(r.catalogue, r.completed_block_number);
+    banner('good', 'Session logged.' + (r.block_completed ? ` 🎉 Block ${r.completed_block_number} complete!` : (isPlanned ? ' You can generate the next session now.' : '')));
   } catch (e) {
     banner('bad', `Error: ${e?.message ?? e}`);
   } finally {

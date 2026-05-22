@@ -223,6 +223,9 @@ export function logSession(catalogue, input = {}) {
       : null),
     athlete_feedback: input.feedbackText || null, // verbatim, for session analysis
     data_quality: signals.data_quality.length ? signals.data_quality : undefined,
+    // The prescribed plan (app-generated sessions only) — kept so the block
+    // analysis export can compare "what was prescribed" vs "what happened".
+    plan: input.planned ?? null,
   };
 
   // ── Update rolling bests ──
@@ -285,6 +288,9 @@ export function logSession(catalogue, input = {}) {
     subtype_inference: subtypeInference,
     expiring_flags, // removal candidates — UI should confirm before clearing
     phase_advancement: adv.advanced ? adv.check : null,
+    // A block just rolled over → the UI offers the block-analysis export.
+    block_completed: blockCompleted,
+    completed_block_number: blockCompleted ? session.block_number : null,
   };
 }
 
