@@ -55,10 +55,3 @@ test('prompt includes metrics, bests, flags and athlete notes', () => {
   assert.match(userPrompt, /NEW SPRINT PROTOCOL BEST/);
 });
 
-test('buildAnalysisPrompt injects catalogue.llm_tuning when present', () => {
-  const cat = catWithSession();
-  cat.llm_tuning = 'Always comment on the stroke-count trend.';
-  const { systemPrompt } = buildAnalysisPrompt(cat.sessions[0], cat);
-  assert.match(systemPrompt, /Coach tuning directives/);
-  assert.match(systemPrompt, /stroke-count trend/);
-});

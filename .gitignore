@@ -6,3 +6,4 @@ node_modules/
 dist/
 .vite/
 .claude/
+eval-output/

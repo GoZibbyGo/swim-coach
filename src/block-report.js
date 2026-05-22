@@ -1,17 +1,11 @@
-// Block analysis report + tuning ingestion.
+// Block analysis report.
 //
 // buildBlockReportMarkdown() assembles everything about one completed block —
 // prescribed plans + actual performance + feedback + engine flags — into a
 // single self-contained markdown doc the athlete hands to an external coaching
-// Claude project, which reviews whether the app's session GENERATION and
-// session ANALYSIS are sound and returns a tuning file.
-//
-// extractTuningGuidance() pulls the auto-applied LLM-guidance section back out
-// of that returned tuning file, so the app can inject it into future prompts.
-// (Deterministic-core changes in the tuning file are NOT auto-applied — they're
-// a spec for a developer to implement, keeping the core a trustworthy gate.)
-//
-// Pure + testable; no DOM, no I/O.
+// Claude project, which grades whether the app's session GENERATION and session
+// ANALYSIS are sound and returns a feedback file of code-change instructions
+// (see docs/coaching-project-brief.md). Pure + testable; no DOM, no I/O.
 
 function fmt(v) { return v == null ? '—' : String(v); }
 
@@ -103,22 +97,4 @@ export function buildBlockReportMarkdown(catalogue, blockNumber) {
     JSON.stringify({ block: blockNumber, sessions: all, rolling_bests: rb }, null, 1), '```');
 
   return out.join('\n');
-}
-
-// Heading that marks the auto-applied guidance section in a returned tuning file.
-const TUNING_HEADING = /^#{1,6}[^\n]*llm guidance[^\n]*$/im;
-
-/**
- * Pull the "LLM guidance (auto-applied)" section out of a returned tuning .md.
- * Returns the trimmed body (until the next heading), or '' if not present.
- * @param {string} md
- * @returns {string}
- */
-export function extractTuningGuidance(md) {
-  const text = String(md ?? '');
-  const m = text.match(TUNING_HEADING);
-  if (!m) return '';
-  const rest = text.slice(m.index + m[0].length);
-  const next = rest.search(/\n#{1,6}\s/);
-  return (next === -1 ? rest : rest.slice(0, next)).trim();
 }

@@ -167,11 +167,3 @@ test('generateSession forwards equipment availability into the LLM prompt', asyn
   await generateSession(catalogue(), { apiKey: 'k', callGeminiFn: callFn, equipmentAvailable: ['rings'] });
   assert.match(captured, /Available equipment:.*gymnastic rings/);
 });
-
-test('buildPrompt injects catalogue.llm_tuning when present', () => {
-  const cat = catalogue();
-  cat.llm_tuning = 'Favour longer warm-ups for this athlete.';
-  const { systemPrompt } = buildPrompt(decision, cat, {}, {});
-  assert.match(systemPrompt, /Coach tuning directives/);
-  assert.match(systemPrompt, /longer warm-ups/);
-});

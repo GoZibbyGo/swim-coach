@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildBlockReportMarkdown, extractTuningGuidance } from '../src/block-report.js';
+import { buildBlockReportMarkdown } from '../src/block-report.js';
 
 function catalogue() {
   return {
@@ -42,24 +42,4 @@ test('buildBlockReportMarkdown includes only the block, with plan + performance'
 
 test('buildBlockReportMarkdown notes when a plan was not recorded', () => {
   assert.match(buildBlockReportMarkdown(catalogue(), 1), /plan not recorded/);
-});
-
-test('extractTuningGuidance pulls the LLM-guidance section only', () => {
-  const md = [
-    '# Tuning 2026-05-22',
-    '## LLM guidance (auto-applied)',
-    'Favour longer warm-ups for this athlete.',
-    'Emphasise stroke count in feedback.',
-    '## Deterministic core changes (dev to implement)',
-    'Lower threshold rest to 25s.',
-  ].join('\n');
-  const g = extractTuningGuidance(md);
-  assert.match(g, /longer warm-ups/);
-  assert.match(g, /stroke count/);
-  assert.doesNotMatch(g, /threshold rest/);  // stops at the next heading
-});
-
-test('extractTuningGuidance returns empty when the section is absent', () => {
-  assert.equal(extractTuningGuidance('# Notes\nNo guidance here.'), '');
-  assert.equal(extractTuningGuidance(''), '');
 });

@@ -10,7 +10,7 @@ import { phaseProgress } from '../src/phases.js';
 import { analyzeSession } from '../src/session-analysis.js';
 import { extractMarkerSeries } from '../src/series.js';
 import { pullCatalogue, pushCatalogue, checkRepo, validateConfig, normalizeConfig } from '../src/github-sync.js';
-import { buildBlockReportMarkdown, extractTuningGuidance } from '../src/block-report.js';
+import { buildBlockReportMarkdown } from '../src/block-report.js';
 
 // ── Demo mode ──
 // ?demo uses a completely separate storage namespace + a fake catalogue, so
@@ -206,7 +206,7 @@ function showBlockFinished(catalogue, blockNumber) {
   card.className = 'card';
   card.style.borderColor = 'var(--accent)';
   card.innerHTML = `<strong>🎉 Block ${blockNumber} finished — download for deeper analysis</strong>
-    <p class="muted">This file has the block's prescribed plans + your actual results + feedback. Hand it to your coaching-review Claude project to check the app is generating and analysing well — it returns a tuning file you paste back in Settings → Coaching tuning.</p>
+    <p class="muted">This file has the block's prescribed plans + your actual results + feedback. Hand it to your coaching-review Claude project (set up from the brief on this page) to grade how the app is generating and analysing — it returns a feedback file that goes to the developer to improve the app.</p>
     <button id="dlBlock" class="block">⬇ Download block ${blockNumber} analysis (.md)</button>`;
   host.prepend(card);
   document.getElementById('dlBlock').addEventListener('click', () =>
@@ -482,7 +482,6 @@ function screenSettings() {
       <button id="clearKey" class="block secondary">Remove key</button>
     </div>
     ${githubCardHtml()}
-    ${tuningCardHtml()}
     <div class="card">
       <strong>Catalogue</strong>
       <p class="muted">Reset clears your local copy and re-seeds from the bundled catalogue.</p>
@@ -511,49 +510,6 @@ function screenSettings() {
     banner('good', 'Local catalogue reset.');
   });
   wireGithubCard();
-  wireTuningCard();
-}
-
-// ── Coaching tuning settings card (auto-applied LLM guidance from a review) ──
-function tuningCardHtml() {
-  const cur = (readCatalogueRaw()?.llm_tuning ?? '').trim();
-  return `<div class="card">
-    <strong>Coaching tuning</strong>
-    <p class="muted">Paste the tuning file your coaching-review Claude project returns (after you hand it a block analysis export). Its “LLM guidance (auto-applied)” section is folded into how sessions and feedback are written. Syncs with your catalogue, so all devices use it.${cur ? '' : ' None active yet.'}</p>
-    ${cur ? `<p class="muted" style="margin-bottom:4px">Active guidance:</p><div class="card" style="background:var(--panel-2);margin:0 0 10px"><pre style="white-space:pre-wrap;margin:0;font:inherit;font-size:13px">${esc(cur)}</pre></div>` : ''}
-    <label>Paste tuning .md</label>
-    <textarea id="tuningInput" placeholder="# Swim Coach Tuning…&#10;## LLM guidance (auto-applied)&#10;…"></textarea>
-    <input type="file" id="tuningFile" accept=".md,.markdown,.txt,text/*" />
-    <button id="applyTuning" class="block">Apply tuning</button>
-    ${cur ? `<button id="clearTuning" class="block secondary">Clear active tuning</button>` : ''}
-  </div>`;
-}
-
-function wireTuningCard() {
-  document.getElementById('tuningFile')?.addEventListener('change', async (ev) => {
-    const f = ev.target.files?.[0];
-    if (!f) return;
-    try { document.getElementById('tuningInput').value = await f.text(); }
-    catch { banner('warn', "Couldn't read that file — paste the text instead."); }
-  });
-  document.getElementById('applyTuning')?.addEventListener('click', () => {
-    const guidance = extractTuningGuidance(document.getElementById('tuningInput').value);
-    if (!guidance) { banner('warn', 'No “LLM guidance (auto-applied)” section found — check the file has that heading.'); return; }
-    const cat = readCatalogueRaw();
-    if (!cat) { banner('bad', 'Open the app first so there’s a catalogue to attach this to.'); return; }
-    cat.llm_tuning = guidance;
-    saveCatalogue(cat);
-    go('settings');
-    banner('good', 'Coaching tuning applied — it’ll shape future sessions and feedback.');
-  });
-  document.getElementById('clearTuning')?.addEventListener('click', () => {
-    const cat = readCatalogueRaw();
-    if (!cat) return;
-    delete cat.llm_tuning;
-    saveCatalogue(cat);
-    go('settings');
-    banner('good', 'Coaching tuning cleared.');
-  });
 }
 
 // ── GitHub sync settings card ──
