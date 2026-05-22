@@ -19,7 +19,7 @@
 // `/web/…` — so the app deploys to a project sub-path (e.g.
 // user.github.io/swim-coach/) as cleanly as to a domain root.
 
-const CACHE = 'swimcoach-v4';
+const CACHE = 'swimcoach-v5';
 
 const SHELL = [
   'web/',
@@ -32,6 +32,7 @@ const SHELL = [
   'web/seed-catalogue.demo.json',
   'web/fonts/InterVariable.woff2',
   'web/vendor/chart.umd.js',
+  'docs/coaching-project-brief.md',
   'knowledge/swimming-coaching-kb.md',
   'src/schema.js',
   'src/garmin-parser.js',

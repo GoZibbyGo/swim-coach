@@ -734,11 +734,28 @@ function screenLog() {
       <button id="logBtn" class="block">Log session</button>
     </div>
 
-    <div id="debrief"></div>`;
+    <div id="debrief"></div>
+
+    <div class="card">
+      <strong>Coaching review</strong>
+      <p class="muted">For deeper analysis: download a block's data when it finishes, plus this one-time brief to set up your review project in Claude. Paste the brief into a Claude.ai Project, then feed it your block exports.</p>
+      <button id="briefBtn" class="block secondary">⬇ Download coaching project brief</button>
+    </div>`;
 
   [...document.querySelectorAll('input[name=src]')].forEach(r => r.addEventListener('change', renderLogBody));
   renderLogBody();
   document.getElementById('logBtn').addEventListener('click', submitLog);
+  document.getElementById('briefBtn').addEventListener('click', downloadBrief);
+}
+
+async function downloadBrief() {
+  try {
+    const md = await fetch('../docs/coaching-project-brief.md').then(r => r.ok ? r.text() : Promise.reject(new Error(r.status)));
+    downloadText('swim-coach-project-brief.md', md);
+    banner('good', 'Brief downloaded — paste it into a Claude.ai Project.');
+  } catch {
+    banner('warn', 'Couldn’t load the brief (needs wifi the first time). Try again online.');
+  }
 }
 
 function renderLogBody() {
