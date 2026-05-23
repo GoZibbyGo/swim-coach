@@ -128,6 +128,29 @@ function checkVolume(session) {
   return { errors: [], warnings };
 }
 
+// Every block must contain real content — a pool block needs ≥1 set with
+// reps×distance; a dryland block needs ≥1 exercise. Catches the LLM emitting
+// section headers with no sets (which previously passed as a "valid" session).
+function checkContent(session) {
+  const errors = [];
+  const blocks = session.blocks ?? [];
+  if (!blocks.length) {
+    errors.push('Session has no blocks.');
+    return { errors, warnings: [] };
+  }
+  for (const block of blocks) {
+    if (session.type === 'dryland') {
+      if (!Array.isArray(block.exercises) || block.exercises.length === 0) {
+        errors.push(`Block "${block.name}" has no exercises — empty blocks are not allowed.`);
+      }
+    } else {
+      const hasReal = (block.sets ?? []).some(s => Number(s.reps) > 0 && Number(s.distance_m) > 0);
+      if (!hasReal) errors.push(`Block "${block.name}" has no real sets (reps×distance) — empty blocks are not allowed.`);
+    }
+  }
+  return { errors, warnings: [] };
+}
+
 function checkSubtype(session) {
   const errors = [];
   const warnings = [];
@@ -135,6 +158,24 @@ function checkSubtype(session) {
     warnings.push(`Pool subtype "${session.subtype}" is not in the known list.`);
   }
   return { errors, warnings };
+}
+
+// A sprint session should be sprint-dominant. Warn (don't block) if there's
+// little true max-effort work — catches a "sprint" session whose main set is
+// actually threshold/pull filler.
+function checkSprintQuality(session) {
+  const warnings = [];
+  if (session.subtype !== 'sprint') return { errors: [], warnings };
+  let maxDist = 0;
+  for (const block of session.blocks ?? []) {
+    for (const set of block.sets ?? []) {
+      if (isMaxEffortSprint(set, block, session)) maxDist += Number(set.reps ?? 1) * Number(set.distance_m ?? 0);
+    }
+  }
+  if (maxDist < 250) {
+    warnings.push(`Sprint session has only ${maxDist}m of true max-effort sprint work — keep the main set sprint-dominant (≈250m+ of max reps), not threshold/pull filler.`);
+  }
+  return { errors: [], warnings };
 }
 
 // Flag respect is a WARNING, not an error: naive keyword scanning can't tell
@@ -189,8 +230,10 @@ export function validateGeneratedSession(session, opts = {}) {
     checkDistances(session),
     checkRest(session),
     checkStructure(session),
+    checkContent(session),
     checkVolume(session),
     checkSubtype(session),
+    checkSprintQuality(session),
     checkFlags(session, activeFlags),
     checkTargets(session),
   ];

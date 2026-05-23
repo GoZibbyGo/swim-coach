@@ -45,27 +45,46 @@ function breakdownText(session) {
 
 export function buildAnalysisPrompt(session, catalogue, knowledge) {
   const rb = catalogue?.rolling_bests ?? {};
-  const flags = (session.coach_flags ?? []).join('\n- ');
+  // Separate the engine's record flags from other flags so the prompt can
+  // constrain "Records" strictly to what the engine actually detected.
+  const allFlags = session.coach_flags ?? [];
+  const recordFlags = allFlags.filter(f => /\bBEST\b|matched|\bPR\b|record|PHASE ADVANCED/i.test(f));
+  const otherFlags = allFlags.filter(f => !recordFlags.includes(f));
+  const hasPerf = (Array.isArray(session.breakdown) && session.breakdown.length > 0)
+    || (session.dryland?.exercises?.length > 0);
 
   const systemPrompt = [
     'You are an expert sprint-freestyle swim coach writing a detailed post-session debrief for the athlete.',
     'Write in markdown with these four sections, in this order, using ## headings:',
-    '## 🏆 Records — list any PRs/matched bests WITH context (why each matters; compare to the previous best).',
-    '## 📊 Session Breakdown — go block by block (warm-up, drills, main set, sprint finish, cool-down as applicable). For sets with multiple reps, include a small markdown table of the rep data, then 1–3 sentences interpreting it.',
-    '## 🚩 Coach Flags — data-quality notes, Garmin glitches, HR/CO2 observations, anything to watch.',
-    '## 🎯 Coaching Takeaways — the narrative: what the data reveals about where speed/limits come from, how it relates to the phase, and 1–2 concrete action items. Respond directly to the athlete\'s own notes here.',
+    '## 🏆 Records — list ONLY the records in the "Records this session" list below (with context vs the previous best). If that list is empty, write "No new records this session." — do not invent any.',
+    '## 📊 Session Breakdown — go block by block (warm-up, drills, main set, sprint finish, cool-down as applicable). Build a rep table ONLY from per-interval data that is actually provided; if only summary data exists, describe it without a fabricated table.',
+    '## 🚩 Coach Flags — data-quality notes, HR/CO2 observations, anything to watch.',
+    '## 🎯 Coaching Takeaways — what the data reveals about where speed/limits come from, how it relates to the phase, and 1–2 concrete action items. Respond directly to the athlete\'s own notes.',
+    '',
+    'CRITICAL DATA RULES — violating these makes the debrief useless:',
+    '- Use ONLY the numbers in "Session metrics", the per-interval data, and the flags below. NEVER invent or estimate per-rep splits, HR, SWOLF, or paces. No data → no table.',
+    '- If there is NO performance data (e.g. a dryland session with no exercises, or "no per-interval data"), say plainly there is nothing to analyse for performance. NEVER fabricate a swim, splits, reps, or results that did not happen.',
+    '- The provided summary IS the source of truth. Do NOT dismiss it as a device/Garmin glitch or substitute your own numbers.',
+    '- Report ONLY the records in the "Records this session" list. Never coin a new PR (including derived 50m times).',
+    '- When per-length split data exists, ALWAYS compare each rep\'s first length to its later length(s) and explicitly call out the wall push-off / first-length gap — a known limiter for this athlete.',
+    '- Cool-down HR: this athlete has lagging CO2 tolerance. Flag an elevated cool-down HR as something to work on; do NOT praise a fast HR drop as a positive.',
+    '- Judge the session against its STATED purpose and phase priority (e.g. a technique session on technique/DPS execution, not on threshold pace).',
+    '- The ≥120s-rest rule applies ONLY to reps the plan labels max/sprint. Do NOT flag labeled "build"/easy reps as rest violations.',
     'Be specific and use the real numbers. Direct, encouraging coach voice. No preamble before the first heading.',
     knowledge ? `\nDomain context:\n${knowledge.slice(0, 5000)}` : '',
   ].filter(Boolean).join('\n');
 
   const userPrompt = [
     `SESSION ${session.id} — ${session.type}/${session.subtype} on ${session.date}${session.source === 'external' ? ' (EXTERNAL — pull performance, do not critique structure)' : ''}.`,
+    `Session purpose: this is a ${session.subtype} ${session.type} session — judge it on that intent.`,
     session.distance_m ? `Volume ${session.distance_m}m.` : '',
-    metricsLine(session) ? `Session metrics: ${metricsLine(session)}.` : '',
+    hasPerf ? '' : 'NO PERFORMANCE DATA was recorded for this session — do not analyse or invent any swim/rep results.',
+    metricsLine(session) ? `Session metrics (source of truth): ${metricsLine(session)}.` : '',
     `Rolling bests for comparison: 25m sprint ${rb.best_25m_sprint_protocol_s}s, raw 25m ${rb.best_25m_split_s}s, avg SWOLF ${rb.best_avg_swolf}, sprint SWOLF ${rb.best_sprint_swolf}, avg pace ${rb.best_avg_pace_per_100m}/100m, threshold pace ${rb.best_threshold_pace_per_100m}/100m, 50m ${rb.best_50m_equiv_s}s.`,
     `Phase ${session.phase_at_time ?? catalogue?.training_phase?.current ?? 1}.`,
     `Per-interval data:\n${breakdownText(session)}`,
-    flags ? `Engine-detected flags (incorporate these):\n- ${flags}` : '',
+    recordFlags.length ? `Records this session (report ONLY these):\n- ${recordFlags.join('\n- ')}` : 'Records this session: NONE — do not report any records.',
+    otherFlags.length ? `Other engine flags (incorporate these):\n- ${otherFlags.join('\n- ')}` : '',
     session.athlete_feedback ? `Athlete's own notes (respond to these directly): "${session.athlete_feedback}"` : 'Athlete left no notes.',
   ].filter(Boolean).join('\n');
 

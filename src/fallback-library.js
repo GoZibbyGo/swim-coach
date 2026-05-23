@@ -322,8 +322,9 @@ function targetLineFor(blockName, subtype, targets) {
   }
   if (subtype === 'threshold' && n.includes('main')) {
     const parts = [];
-    if (targets.main_set_pace_target != null) parts.push(`hold ${targets.main_set_pace_target}/100m`);
+    if (targets.effort != null) parts.push(targets.effort);
     if (targets.swolf_target != null) parts.push(`SWOLF ${targets.swolf_target}`);
+    if (targets.stroke_count_target != null) parts.push(`${targets.stroke_count_target} strokes/length`);
     return parts.length ? `Target: ${parts.join(' · ')}` : null;
   }
   if (subtype === 'technique' && n.includes('main')) {

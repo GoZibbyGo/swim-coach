@@ -52,7 +52,12 @@ const SESSION_CONTRACT = `Return ONLY JSON matching:
       "sets": [ { "reps": number, "distance_m": number, "effort": string, "rest_s": number, "drill"?: string, "breathing"?: string } ] }
   ]
 }
-Rules: warm-up + main set + cool-down are required. Distances MUST add up exactly (each block.volume_m = sum of reps×distance; you will be rejected otherwise). Sprint/max reps need rest_s >= 120. Threshold reps over 400m need rest_s >= 30. Never prescribe dolphin kick if a quad flag is active.`;
+Rules: warm-up + main set + cool-down are required. Every block MUST contain at least one real set (reps×distance) — never emit an empty block. Distances MUST add up exactly (each block.volume_m = sum of reps×distance; you will be rejected otherwise). Sprint/max reps need rest_s >= 120. Threshold reps over 400m need rest_s >= 30. Never prescribe dolphin kick if a quad flag is active.
+
+Coaching rules:
+- Targets/cues must be stated as EFFORT (RPE / %/ "max") plus stroke-count and/or SWOLF — NEVER as /100m pace. The athlete's watch shows no live pace, so a pace target is useless mid-set.
+- Vary the main-set STRUCTURE from the recent same-type sessions listed below — alternate broken 50s, descending 25s, ladders, etc. Do not reuse the previous same-type session's set shape.
+- In a SPRINT session, the main set must be true max/alactic sprint quality (short max reps with full rest) plus at most one race-style 50m effort. Do NOT fill the sprint main set with threshold or steady pull work.`;
 
 export function buildPrompt(decision, catalogue, targets, opts = {}) {
   const phase = catalogue?.training_phase?.current ?? 1;
@@ -147,6 +152,16 @@ export async function generateSession(catalogue, opts = {}) {
   const callFn = opts.callGeminiFn ?? callGemini;
 
   const result = (extra) => ({ decision, targets, ...extra });
+
+  // Dryland → deterministic library always. The library's dryland templates are
+  // concrete and equipment-aware; the LLM JSON contract is pool-shaped (sets of
+  // distance), so routing dryland through it produced empty, contentless plans.
+  if (decision.type === 'dryland') {
+    return result(fallback(decision, catalogue, targets, opts, {
+      reason: 'dryland_library',
+      message: 'Dryland sessions use the equipment-aware template library.',
+    }));
+  }
 
   // No LLM configured → straight to fallback (not an error).
   if (!opts.apiKey || opts.forceFallback) {

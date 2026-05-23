@@ -113,18 +113,15 @@ function sprintTargets(catalogue) {
  * Threshold targets.
  */
 function thresholdTargets(catalogue) {
-  // Use the dedicated *sustainable* threshold-pace best, NOT the whole-session
-  // avg-pace best (which is dominated by short sprint days). Target = best - 3s.
-  // The field is seeded via schema.migrateCatalogue() if a catalogue predates
-  // its introduction.
-  const bestPaceStr = rb(catalogue).best_threshold_pace_per_100m;
-  const bestPaceS = bestPaceStr ? paceToSeconds(bestPaceStr) : null;
-  const targetPaceS = bestPaceS != null ? bestPaceS - TARGET_STEPS.threshold_pace_improvement_s : null;
+  // The watch shows no live pace, so a /100m pace target isn't actionable
+  // mid-set. Prescribe by EFFORT (RPE) + stroke-count + SWOLF, which the athlete
+  // can hold and observe in-pool. (The sustainable threshold-pace best is kept
+  // only as context for analysis, not as a prescribed target.)
   return {
-    main_set_pace_target: targetPaceS != null ? secondsToPace(targetPaceS) : null,
-    main_set_pace_basis: bestPaceStr ?? null,
+    effort: 'comfortably hard — RPE 7–8 (threshold: strong but repeatable, not max)',
     swolf_target: swolfTarget(catalogue),
     stroke_count_target: 9, // threshold reps run longer strokes than sprint
+    pace_context_per_100m: rb(catalogue).best_threshold_pace_per_100m ?? null, // analysis context only
   };
 }
 

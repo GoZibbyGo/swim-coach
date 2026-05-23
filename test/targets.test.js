@@ -59,11 +59,14 @@ test('sprint targets: beat current best, stretch -0.3s, swolf best -1', () => {
 // ──────────────────────────────────────────────────────────────────────────
 // Threshold targets
 
-test('threshold targets: sustainable-pace best -3s/100m, swolf stepped toward phase goal', () => {
+test('threshold targets: effort-based (no /100m pace target), swolf stepped toward phase goal', () => {
   const t = computeTargets(catalogue(), 'threshold');
-  // best threshold pace 1:36 = 96s → -3 = 93s = 1:33 (matches Block 2 plan)
-  assert.equal(t.main_set_pace_target, '1:33');
-  assert.equal(t.main_set_pace_basis, '1:36');
+  // No /100m pace target — the watch shows no live pace, so threshold is
+  // prescribed by effort + stroke-count + SWOLF.
+  assert.equal(t.main_set_pace_target, undefined);
+  assert.match(t.effort, /RPE/);
+  assert.equal(t.stroke_count_target, 9);
+  assert.equal(t.pace_context_per_100m, '1:36'); // kept as analysis context only
   // swolf best 31 - 1 = 30, which equals phase floor (30) → 30
   assert.equal(t.swolf_target, 30);
 });
@@ -126,7 +129,8 @@ if (existsSync(realPath)) {
     assert.equal(sprint.stretch_25m_s, 16.5);    // stretch
     assert.equal(sprint.sprint_swolf_target, 23); // 24 - 1
     const thresh = computeTargets(cat, 'threshold');
-    assert.equal(thresh.main_set_pace_target, '1:33'); // 1:36 seed - 3s
+    assert.equal(thresh.main_set_pace_target, undefined); // no /100m pace target
+    assert.match(thresh.effort, /RPE/);                   // effort-based instead
   });
 } else {
   test('real catalogue not found — skipping targets integration', { skip: true }, () => {});

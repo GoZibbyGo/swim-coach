@@ -234,8 +234,13 @@ export function determineNextSession(catalogue, opts = {}) {
   const drylandDue = counts.dryland < BLOCK_TARGET.dryland;
   const poolDue = counts.pool < BLOCK_TARGET.pool;
 
-  // Whether the rotating rule wants dryland this session.
-  const slotWantsDryland = drylandDue && (sessionInBlock === drySlot || !poolDue);
+  // Whether the rotating rule wants dryland this session. Guard the block
+  // boundary: if the previous session was dryland and pool is still due, defer
+  // dryland (otherwise a block that closes on dryland can open the next block on
+  // dryland too — two dryland days back to back). The !poolDue safety net below
+  // still guarantees the block gets its dryland.
+  const lastWasDryland = (catalogue?.sessions?.[0]?.type) === 'dryland';
+  const slotWantsDryland = drylandDue && (sessionInBlock === drySlot || !poolDue) && !(lastWasDryland && poolDue);
 
   // Athlete explicitly asked for a type → honour it.
   if (opts.explicit_type === 'dryland') {

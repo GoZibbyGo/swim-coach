@@ -91,7 +91,7 @@ function renderPool(session) {
   const t = session.targets ?? {};
   if (t.beat_25m_s != null) lines.push(`| Best 25m split | sub-${t.stretch_25m_s ?? t.beat_25m_s}s | ___s |`);
   if (t.sprint_swolf_target != null) lines.push(`| Best sprint SWOLF | ${t.sprint_swolf_target} | ___ |`);
-  if (t.main_set_pace_target != null) lines.push(`| Main set pace /100m | ${t.main_set_pace_target} | ___ |`);
+  if (t.effort != null) lines.push(`| Main set effort | ${t.effort} | ___ |`);
   if (t.swolf_target != null) lines.push(`| Avg SWOLF | ${t.swolf_target} | ___ |`);
   if (t.stretch_50m_s != null) lines.push(`| Best 50m | sub-${t.stretch_50m_s}s | ___s |`);
   lines.push('| Stroke count in sprint reps | 7/length | ___ |');
@@ -106,9 +106,11 @@ function renderPool(session) {
 }
 
 function phaseProgressLine(session, t) {
+  // Show the actionable stepped target, not the ultimate goal (a hard-coded
+  // "→ 14.0s" 25m is implausible for Phase 1 and read as broken).
   const bits = [];
-  if (t.beat_25m_s != null) bits.push(`Best 25m ${t.beat_25m_s}s → 14.0s`);
-  if (t.swolf_target != null) bits.push(`SWOLF target ${t.swolf_target} → 30`);
+  if (t.beat_25m_s != null) bits.push(`Best 25m ${t.beat_25m_s}s → target sub-${t.stretch_25m_s ?? t.beat_25m_s}s`);
+  if (t.swolf_target != null) bits.push(`SWOLF → ${t.swolf_target}`);
   return `🏁 **Phase ${session.phase} Progress:** ${bits.join(' | ') || '—'}`;
 }
 
