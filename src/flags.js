@@ -146,15 +146,22 @@ export function detectTechnical(parsed, opts = {}) {
     }
   }
 
-  // ── First-length gap across 50m reps (push-off / wall gap).
-  const fifties = fiftyReps(intervals);
-  if (fifties.length >= 2) {
-    const l1 = avg(fifties.map(i => i.lengths[0].time_s));
-    const l2 = avg(fifties.map(i => i.lengths[1].time_s));
+  // ── First-length gap (push-off / wall): compare each rep's first length to
+  // its second, across ALL multi-length freestyle reps — 50s, 100s, 200s, any
+  // subtype — not just 50m reps. The fallback feedback path relies entirely on
+  // engine flags, so this must fire whenever the pattern is in the data.
+  const multiLen = intervals.filter(i =>
+    !i.is_rest && !isDrillInterval(i) &&
+    (i.lengths?.length ?? 0) >= 2 &&
+    i.lengths[0]?.is_freestyle && !i.lengths[0]?.is_drill && i.lengths[0]?.time_s != null &&
+    i.lengths[1]?.is_freestyle && !i.lengths[1]?.is_drill && i.lengths[1]?.time_s != null);
+  if (multiLen.length >= 2) {
+    const l1 = avg(multiLen.map(i => i.lengths[0].time_s));
+    const l2 = avg(multiLen.map(i => i.lengths[1].time_s));
     if (l1 != null && l2 != null) {
       const gap = round1(l1 - l2);
-      if (gap >= 1.0) {
-        flags.push(`First-length gap: L1 avg ${round1(l1)}s vs L2 avg ${round1(l2)}s (${gap}s) — wall push-off is the gap.`);
+      if (gap >= 0.5) {
+        flags.push(`First-length gap: L1 avg ${round1(l1)}s vs L2 avg ${round1(l2)}s (${gap}s slower off the wall) across ${multiLen.length} reps — wall push-off is the gap.`);
       }
     }
   }

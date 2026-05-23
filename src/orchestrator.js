@@ -57,7 +57,8 @@ Rules: warm-up + main set + cool-down are required. Every block MUST contain at 
 Coaching rules:
 - Targets/cues must be stated as EFFORT (RPE / %/ "max") plus stroke-count and/or SWOLF — NEVER as /100m pace. The athlete's watch shows no live pace, so a pace target is useless mid-set.
 - Vary the main-set STRUCTURE from the recent same-type sessions listed below — alternate broken 50s, descending 25s, ladders, etc. Do not reuse the previous same-type session's set shape.
-- In a SPRINT session, the main set must be true max/alactic sprint quality (short max reps with full rest) plus at most one race-style 50m effort. Do NOT fill the sprint main set with threshold or steady pull work.`;
+- For a THRESHOLD session, rotate the main set across the camp (e.g. broken 300s/400s, descending 200s, or a 200/300/400 ladder) — do NOT default to 6×200 every time.
+- In a SPRINT session, the main set must be true max/alactic sprint quality (short max reps with full rest) plus at most one race-style 50m effort, and vary the alactic backbone run-to-run (descending 25s, broken 50s, 25/50 mixes). Do NOT fill the sprint main set with threshold or steady pull work.`;
 
 export function buildPrompt(decision, catalogue, targets, opts = {}) {
   const phase = catalogue?.training_phase?.current ?? 1;
@@ -66,6 +67,14 @@ export function buildPrompt(decision, catalogue, targets, opts = {}) {
   const pending = catalogue?.pending_adjustments;
   const recent = (catalogue?.sessions ?? []).slice(0, 3)
     .map(s => `${s.date} ${s.type}/${s.subtype}`).join('; ');
+
+  // The most recent same-subtype session's prescribed main set — fed back so the
+  // LLM can make THIS session structurally different (not the same 6×200 twice).
+  const lastSame = (catalogue?.sessions ?? []).find(s => s.subtype === decision.subtype && Array.isArray(s.plan?.blocks));
+  const lastMain = lastSame && lastSame.plan.blocks.find(b => /main/i.test(b.name ?? ''));
+  const lastMainDesc = lastMain?.sets?.length
+    ? lastMain.sets.map(s => `${s.reps}×${s.distance_m}m${s.effort ? ' ' + s.effort : ''}`).join(' + ')
+    : null;
 
   const systemPrompt = [
     'You are an expert sprint-freestyle swim coach generating one training session.',
@@ -95,6 +104,7 @@ export function buildPrompt(decision, catalogue, targets, opts = {}) {
     decision.active_flags?.length ? `ACTIVE INJURY FLAGS: ${decision.active_flags.join(', ')}.\nFlag guidance:\n${guidance}` : 'No active injury flags.',
     pending ? `Recent feedback adjustments to honour: ${JSON.stringify({ intensity: pending.intensity, volume: pending.volume, recovery_tilt: pending.recovery_tilt, technique_focus: pending.technique_focus })}.` : '',
     recent ? `Recent sessions (avoid repeating the last 2 main-set structures): ${recent}.` : '',
+    lastMainDesc ? `Your most recent ${decision.subtype} MAIN SET was: ${lastMainDesc}. Make THIS session's main set structurally DIFFERENT (different rep length/shape) — do NOT repeat it.` : '',
   ].filter(Boolean).join('\n');
 
   return { systemPrompt, userPrompt };

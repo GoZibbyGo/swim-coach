@@ -161,7 +161,8 @@ async function runStep(catalogue, idx, knowledge) {
     input.dryland = synthesizeDryland(session);
     perfNote = `dryland · ${input.dryland.exercises.length} exercises`;
   }
-  input.feedbackText = 'Auto-synthesised performance (training-camp eval).';
+  // No athlete note — a synthetic placeholder here made the feedback "respond"
+  // to a fake journal entry. Leave notes empty (a real athlete may add one).
 
   const logged = logSession(catalogue, input);
   const loggedSession = logged.catalogue.sessions[0];
