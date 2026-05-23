@@ -95,7 +95,14 @@ function synthesizeCsv(session, idx) {
       let repTime = 0, repStrokes = 0;
       const lengthTimes = [];
       for (let L = 1; L <= lengthsPerRep; L++) {
-        const base = base25mForEffort(s.effort) * trend * jitter(0.03);
+        // Realistic shape: the first length of each rep is slowest off the wall
+        // (the athlete's known push-off weakness), then a touch of fatigue per
+        // later length. This makes the first-length gap actually present (so the
+        // feedback can be fairly graded on it) and keeps multi-length reps from
+        // being implausibly fast.
+        const pushOff = L === 1 ? 1.10 : 1.0;
+        const fatigue = 1 + 0.025 * Math.max(0, L - 1);
+        const base = base25mForEffort(s.effort) * trend * pushOff * fatigue * jitter(0.02);
         const t = Math.round(base * 10) / 10;
         const strokes = strokesForEffort(s.effort) + (Math.random() < 0.3 ? 1 : 0);
         lengthTimes.push(t); repTime += t; repStrokes += strokes;
@@ -157,6 +164,7 @@ async function runStep(catalogue, idx, knowledge) {
   input.feedbackText = 'Auto-synthesised performance (training-camp eval).';
 
   const logged = logSession(catalogue, input);
+  const loggedSession = logged.catalogue.sessions[0];
   const analysis = await analyzeSession(logged.catalogue, { apiKey, model, knowledge });
 
   return {
@@ -167,10 +175,32 @@ async function runStep(catalogue, idx, knowledge) {
       type: session.type, subtype: session.subtype,
       gen_source: gen.source, gen_status: gen.status, fallback_reason: gen.fallback_reason ?? null,
       planMd, perfNote,
+      metrics: loggedSession.metrics, breakdown: loggedSession.breakdown, dryland: loggedSession.dryland,
       flags: logged.flags, records: logged.records,
       feedback_source: analysis.source, feedback: analysis.text,
     },
   };
+}
+
+// The COMPLETE per-interval data the feedback engine received — so the grader
+// can tell "used the data" from "fabricated" (the previous one-line summary
+// made legitimate per-rep tables look invented).
+function perfDetail(r) {
+  if (Array.isArray(r.breakdown) && r.breakdown.length) {
+    const rows = ['', '| INT | Dist | Time | SWOLF | avgHR | maxHR | Rest | Per-length splits (s) |', '|---|---|---|---|---|---|---|---|'];
+    for (const b of r.breakdown) {
+      const splits = (b.splits_s ?? []).filter(x => x != null).join(' / ');
+      rows.push(`| ${b.n}${b.is_drill ? ' (drill)' : ''} | ${b.distance_m}m | ${b.time_s ?? '—'}s | ${b.swolf ?? '—'} | ${b.avg_hr ?? '—'} | ${b.max_hr ?? '—'} | ${b.rest_after_s ? Math.round(b.rest_after_s) + 's' : '—'} | ${splits || '—'} |`);
+    }
+    return rows.join('\n');
+  }
+  if (r.dryland?.exercises?.length) {
+    return '\n' + r.dryland.exercises.map(e => {
+      const v = e.reps_per_set ?? e.duration_s_per_set ?? [];
+      return `- ${e.name}: ${Array.isArray(v) ? v.join(' / ') : v}`;
+    }).join('\n');
+  }
+  return '\n_(no per-interval data — nothing for the feedback to analyse)_';
 }
 
 function recordToMarkdown(r) {
@@ -178,9 +208,10 @@ function recordToMarkdown(r) {
   out.push(`## Session ${r.idx} — Block ${r.block}, session ${r.session_in_block} · ${r.type}/${r.subtype}`);
   out.push(`*Plan by: **${r.gen_source}** (${r.gen_status}${r.fallback_reason ? `, ${r.fallback_reason}` : ''}) · Feedback by: **${r.feedback_source}***`);
   out.push('', '### Prescribed plan', r.planMd);
-  out.push('', `### Synthesised performance\n${r.perfNote}`);
+  out.push('', '### Synthesised performance — COMPLETE data the feedback engine received', r.perfNote, perfDetail(r));
+  out.push('', '### Engine records this session (the ONLY records feedback may report)',
+    (r.records && Object.keys(r.records).length) ? Object.entries(r.records).map(([k, v]) => `- ${k}: ${v}`).join('\n') : '- none');
   if (r.flags?.length) out.push('', '### Engine flags', r.flags.map(f => `- ${f}`).join('\n'));
-  if (r.records && Object.keys(r.records).length) out.push('', '### New records', Object.entries(r.records).map(([k, v]) => `- ${k}: ${v}`).join('\n'));
   out.push('', '### Generated feedback', r.feedback);
   return out.join('\n');
 }
@@ -201,6 +232,12 @@ async function main() {
     catalogue = next;
     records.push(record);
     console.log(` ${record.type}/${record.subtype} [plan:${record.gen_source}, fb:${record.feedback_source}]`);
+    // Quota probe: if Gemini's daily limit is hit (e.g. not reset yet), stop —
+    // a real eval needs Gemini, and continuing would just produce fallbacks.
+    if (record.fallback_reason === 'rate_limit_daily') {
+      console.log('  ⛔ Gemini daily quota reached (not reset) — stopping early. Re-run after the Pacific-midnight reset.');
+      break;
+    }
   }
 
   const header = [
