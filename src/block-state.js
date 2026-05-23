@@ -101,44 +101,60 @@ function daysBetween(isoA, isoB) {
 // ──────────────────────────────────────────────────────────────────────────
 
 /**
- * Pick a pool subtype using phase priority + anti-repetition.
- * Anti-repetition: the new subtype must differ from the last 2 sessions of
- * type 'pool'. If only one option remains, allow it but note the repetition.
+ * Pick a pool subtype using PRIORITY-WEIGHTED FREQUENCY + no immediate repeat.
+ *
+ * Higher-priority subtypes (Phase 1: Sprint > Technique > Threshold) recur more
+ * often than lower-priority ones, but never back-to-back, and lower-priority
+ * subtypes still surface periodically. Score = priority_weight / (recent_count
+ * + 1) over a sliding window; the highest score wins, ties break by priority.
+ * This replaced a plain "exclude the last 2" rule, which forced every subtype to
+ * appear equally often (threshold as frequent as sprint).
  */
 function pickPoolSubtype(catalogue, phaseNumber, override = null) {
   const priority = resolvePhasePriority(phaseNumber);
-  const recent = recentSubtypes(catalogue, 'pool', 2);
-  const exclude = new Set(recent);
+  const window = recentSubtypes(catalogue, 'pool', priority.length * 2); // sliding window
+  const last1 = window[0] ?? null;
 
   if (override) {
     return {
       subtype: override,
       reason: `Athlete override: ${override}.`,
-      anti_repetition_warning: exclude.has(override)
-        ? `Repeats one of last 2 pool sessions (${recent.join(', ')}).`
+      anti_repetition_warning: last1 === override
+        ? `Repeats the immediately previous pool session (${last1}).`
         : null,
     };
   }
 
-  // Walk the phase priority order, take the first subtype not in the recent set.
-  for (const candidate of priority) {
-    if (!exclude.has(candidate)) {
-      return {
-        subtype: candidate,
-        reason: `Phase ${phaseNumber} priority pick; not in last 2 pool sessions (${recent.length ? recent.join(', ') : 'none'}).`,
-        anti_repetition_warning: null,
-      };
-    }
-  }
+  const weight = {};
+  priority.forEach((s, i) => { weight[s] = priority.length - i; }); // sprint=3, technique=2, threshold=1
+  const count = {};
+  for (const s of window) count[s] = (count[s] ?? 0) + 1;
 
-  // All priority subtypes are blocked by anti-repetition → fall back to the
-  // first priority subtype but flag the repetition.
-  const fallback = priority[0];
+  // Candidates: phase subtypes except the immediately previous one. (If the
+  // phase defines only one subtype, allow the repeat.)
+  const candidates = priority.filter(s => s !== last1);
+  const pool = candidates.length ? candidates : priority;
+
+  let best = pool[0];
+  let bestScore = -Infinity;
+  for (const s of pool) {                 // iterated in priority order → ties favour higher priority
+    const score = weight[s] / ((count[s] ?? 0) + 1);
+    if (score > bestScore) { bestScore = score; best = s; }
+  }
   return {
-    subtype: fallback,
-    reason: `All Phase ${phaseNumber} subtypes appear in last 2 pool sessions — falling back to top priority.`,
-    anti_repetition_warning: `Repeats subtype "${fallback}" from last 2 sessions (${recent.join(', ')}).`,
+    subtype: best,
+    reason: `Phase ${phaseNumber} priority-weighted pick (favours ${priority[0]}), not repeating the previous session${window.length ? ` (recent: ${window.slice(0, 3).join(', ')})` : ''}.`,
+    anti_repetition_warning: best === last1 ? `Repeats subtype "${best}" (only one subtype available this phase).` : null,
   };
+}
+
+// Dryland subtype rotation — alternate the two complementary dryland families
+// (pull-focused vs press/legs/core) so consecutive blocks' dryland sessions
+// differ instead of repeating the same plan.
+const DRYLAND_ROTATION = ['pulling_strength', 'push_core_legs'];
+function pickDrylandSubtype(catalogue) {
+  const lastDry = (catalogue?.sessions ?? []).find(s => s?.type === 'dryland')?.subtype;
+  return DRYLAND_ROTATION.find(s => s !== lastDry) ?? DRYLAND_ROTATION[0];
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -172,7 +188,7 @@ export function determineNextSession(catalogue, opts = {}) {
     return {
       type: opts.explicit_type === 'dryland' ? 'dryland' : 'pool',
       subtype: opts.explicit_type === 'dryland'
-        ? (opts.explicit_subtype ?? 'pulling_strength')
+        ? (opts.explicit_subtype ?? pickDrylandSubtype(catalogue))
         : subtypeChoice.subtype,
       block_number: newBlockN,
       session_in_block: 1,
@@ -246,7 +262,7 @@ export function determineNextSession(catalogue, opts = {}) {
   if (opts.explicit_type === 'dryland') {
     return {
       type: 'dryland',
-      subtype: opts.explicit_subtype ?? 'pulling_strength',
+      subtype: opts.explicit_subtype ?? pickDrylandSubtype(catalogue),
       block_number: blockN,
       session_in_block: sessionInBlock,
       is_new_block: false,
@@ -283,7 +299,7 @@ export function determineNextSession(catalogue, opts = {}) {
   if (slotWantsDryland) {
     return {
       type: 'dryland',
-      subtype: opts.explicit_subtype ?? 'pulling_strength',
+      subtype: opts.explicit_subtype ?? pickDrylandSubtype(catalogue),
       block_number: blockN,
       session_in_block: sessionInBlock,
       is_new_block: false,

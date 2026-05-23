@@ -61,29 +61,35 @@ test('pickPoolSubtype follows Phase 1 priority when nothing recent', () => {
   assert.equal(r.anti_repetition_warning, null);
 });
 
-test('pickPoolSubtype skips subtypes used in last 2 pool sessions', () => {
+test('pickPoolSubtype does not repeat the immediately previous subtype', () => {
   const cat = makeCatalogue({
     sessions: [
-      poolSession(2, '2026-05-15', 'sprint'),
+      poolSession(2, '2026-05-15', 'sprint'),     // previous session
       poolSession(1, '2026-05-13', 'technique'),
     ],
   });
   const r = pickPoolSubtype(cat, 1);
-  // sprint + technique excluded → threshold is next available
-  assert.equal(r.subtype, 'threshold');
+  // Previous was sprint → not sprint; technique outranks threshold → technique.
+  assert.equal(r.subtype, 'technique');
 });
 
-test('pickPoolSubtype falls back with warning when all priorities recent', () => {
-  const cat = makeCatalogue({
-    sessions: [
-      poolSession(3, '2026-05-15', 'sprint'),
-      poolSession(2, '2026-05-13', 'technique'),
-    ],
-  });
-  // Only last 2 are considered, so threshold is still free here; force the
-  // edge case by making both recent ones cover 2 of 3 priorities and
-  // requesting via a 2-window that includes the 3rd is impossible — instead
-  // test the explicit-all-blocked path directly via override repetition.
+test('pickPoolSubtype weights frequency toward higher phase priority', () => {
+  // Self-play the picker, feeding each pick back as the most-recent session.
+  const picks = [];
+  let sessions = [];
+  for (let i = 0; i < 6; i++) {
+    const r = pickPoolSubtype(makeCatalogue({ sessions }), 1);
+    picks.push(r.subtype);
+    sessions = [poolSession(100 + i, `2026-05-1${i}`, r.subtype), ...sessions];
+  }
+  const n = s => picks.filter(p => p === s).length;
+  assert.ok(n('sprint') > n('technique'), `sprint(${n('sprint')}) should exceed technique(${n('technique')})`);
+  assert.ok(n('technique') >= n('threshold'), `technique(${n('technique')}) should be ≥ threshold(${n('threshold')})`);
+  for (let i = 1; i < picks.length; i++) assert.notEqual(picks[i], picks[i - 1], 'no back-to-back repeat');
+});
+
+test('pickPoolSubtype flags repetition on an override that repeats the previous', () => {
+  const cat = makeCatalogue({ sessions: [poolSession(3, '2026-05-15', 'sprint')] });
   const r = pickPoolSubtype(cat, 1, 'sprint');
   assert.equal(r.subtype, 'sprint');
   assert.match(r.anti_repetition_warning, /Repeats/);
@@ -138,10 +144,10 @@ test('advisory plan is ignored (external session diverged the block)', () => {
   });
   cat.weekly_block_tracking.current_block_plan_advisory = true;
   const d = determineNextSession(cat);
-  // Plan said session 3 = sprint, but advisory → phase priority + anti-repetition.
-  // Recent pool subtypes are technique + sprint, so threshold is picked.
+  // Plan said session 3 = sprint, but advisory → priority-weighted scheduling.
+  // Previous pool session was technique → avoid it; sprint (top priority) wins.
   assert.equal(d.block_plan, null);
-  assert.equal(d.subtype, 'threshold');
+  assert.equal(d.subtype, 'sprint');
   assert.match(d.rationale, /priority/);
 });
 
@@ -172,6 +178,20 @@ test('determineNextSession forces dryland when pool quota met but dryland not', 
   const d = determineNextSession(cat);
   assert.equal(d.type, 'dryland');
   assert.match(d.rationale, /only remaining session/);
+});
+
+test('dryland subtype alternates block-to-block', () => {
+  // No prior dryland → the pull-focused family.
+  const d1 = determineNextSession(makeCatalogue({ blockNumber: 3, poolCount: 3, drylandCount: 0 }));
+  assert.equal(d1.type, 'dryland');
+  assert.equal(d1.subtype, 'pulling_strength');
+  // Last dryland was pulling_strength → next dryland is the complementary one.
+  const d2 = determineNextSession(makeCatalogue({
+    blockNumber: 3, poolCount: 3, drylandCount: 0,
+    sessions: [{ id: 9, date: '2026-05-18', type: 'dryland', subtype: 'pulling_strength' }],
+  }));
+  assert.equal(d2.type, 'dryland');
+  assert.equal(d2.subtype, 'push_core_legs');
 });
 
 // ──────────────────────────────────────────────────────────────────────────

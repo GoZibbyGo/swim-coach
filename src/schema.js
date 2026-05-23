@@ -18,6 +18,7 @@ export const DRYLAND_SUBTYPES = Object.freeze([
   'endurance',
   'mobility',
   'pulling_strength',
+  'push_core_legs',
 ]);
 
 export const SELF_EVAL_VALUES = Object.freeze(['Strong', 'OK', 'Weak']);

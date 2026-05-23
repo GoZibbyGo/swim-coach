@@ -217,6 +217,89 @@ const DRYLAND_TEMPLATES = {
   },
 };
 
+// Second dryland subtype: a PRESSING / LEGS / CORE emphasis that complements the
+// pull-dominant `pulling_strength` family, so consecutive blocks' dryland
+// sessions differ instead of repeating the same plan. Same equipment keys; the
+// leg block name contains "Leg" so the quad-flag annotation still applies.
+const DRYLAND_TEMPLATES_PUSH = {
+  bars: {
+    id: 'dryland_push_bars',
+    blocks: [
+      { name: 'Block A — Core & Anti-Rotation', exercises: [
+        { name: 'Side plank', sets: 3, prescription: '20-30s each', rest_s: 40, rationale: 'lateral trunk / anti-roll' },
+        { name: 'Hanging knee raises', sets: 3, prescription: '10-12 reps', rest_s: 45, rationale: 'lower-ab + hip-flexor control' },
+        { name: 'Hollow rocks', sets: 3, prescription: '12 reps', rest_s: 40, rationale: 'streamline tension under motion' },
+      ] },
+      { name: 'Block B — Pressing Strength', exercises: [
+        { name: 'Dips (bars)', sets: 4, prescription: '8-10 reps', rest_s: 75, rationale: 'pressing power, breakout push' },
+        { name: 'Pike push-ups', sets: 3, prescription: '8-10 reps', rest_s: 60, rationale: 'overhead press / shoulder drive' },
+      ] },
+      { name: 'Block C — Legs / Hips (controlled)', exercises: [
+        { name: 'Bar-assisted split squat', sets: 3, prescription: '8 each', rest_s: 60, rationale: 'unilateral quad control' },
+        { name: 'Wall-sit', sets: 3, prescription: '30s', rest_s: 45, rationale: 'quad isometric base' },
+        { name: 'Calf raises', sets: 3, prescription: '15 reps', rest_s: 30, rationale: 'ankle drive for push-off' },
+      ] },
+      { name: 'Block D — Posterior Balance', exercises: [
+        { name: 'Inverted rows', sets: 3, prescription: '10-12 reps', rest_s: 60, rationale: 'balance the pressing volume' },
+        { name: 'Prone Y-T-W raises', sets: 3, prescription: '10 each', rest_s: 45, rationale: 'lower-trap / cuff health' },
+      ] },
+    ],
+  },
+  rings: {
+    id: 'dryland_push_rings',
+    blocks: [
+      { name: 'Block A — Core & Anti-Rotation', exercises: [
+        { name: 'Side plank', sets: 3, prescription: '20-30s each', rest_s: 40, rationale: 'lateral trunk / anti-roll' },
+        { name: 'Ring knee raises', sets: 3, prescription: '10-12 reps', rest_s: 45, rationale: 'hip-flexor control' },
+        { name: 'Hollow rocks', sets: 3, prescription: '12 reps', rest_s: 40, rationale: 'streamline tension under motion' },
+      ] },
+      { name: 'Block B — Pressing Strength', exercises: [
+        { name: 'Ring dips', sets: 4, prescription: '6-8 reps', rest_s: 75, rationale: 'pressing power + stability' },
+        { name: 'Ring push-ups', sets: 3, prescription: '10-12 reps', rest_s: 60, rationale: 'pressing under instability' },
+      ] },
+      { name: 'Block C — Legs / Hips (controlled)', exercises: [
+        { name: 'Ring-assisted split squat', sets: 3, prescription: '8 each', rest_s: 60, rationale: 'unilateral quad control' },
+        { name: 'Wall-sit', sets: 3, prescription: '30s', rest_s: 45, rationale: 'quad isometric base' },
+        { name: 'Calf raises', sets: 3, prescription: '15 reps', rest_s: 30, rationale: 'ankle drive for push-off' },
+      ] },
+      { name: 'Block D — Posterior Balance', exercises: [
+        { name: 'Ring rows', sets: 3, prescription: '10-12 reps', rest_s: 60, rationale: 'balance the pressing volume' },
+        { name: 'Prone Y-T-W raises', sets: 3, prescription: '10 each', rest_s: 45, rationale: 'lower-trap / cuff health' },
+      ] },
+    ],
+  },
+  bodyweight: {
+    id: 'dryland_push_bodyweight',
+    blocks: [
+      { name: 'Block A — Core & Anti-Rotation', exercises: [
+        { name: 'Side plank', sets: 3, prescription: '20-30s each', rest_s: 40, rationale: 'lateral trunk / anti-roll' },
+        { name: 'Hollow rocks', sets: 3, prescription: '12 reps', rest_s: 40, rationale: 'streamline tension under motion' },
+        { name: 'Bird dog', sets: 3, prescription: '8 each', rest_s: 30, rationale: 'anti-rotation' },
+      ] },
+      { name: 'Block B — Pressing Strength', exercises: [
+        { name: 'Push-ups', sets: 4, prescription: '12-15 reps', rest_s: 60, rationale: 'pressing power, breakout push' },
+        { name: 'Pike push-ups', sets: 3, prescription: '8-10 reps', rest_s: 60, rationale: 'overhead press / shoulder drive' },
+      ] },
+      { name: 'Block C — Legs / Hips (controlled)', exercises: [
+        { name: 'Split squat', sets: 3, prescription: '8 each', rest_s: 60, rationale: 'unilateral quad control' },
+        { name: 'Wall-sit', sets: 3, prescription: '30s', rest_s: 45, rationale: 'quad isometric base' },
+        { name: 'Calf raises', sets: 3, prescription: '15 reps', rest_s: 30, rationale: 'ankle drive for push-off' },
+      ] },
+      { name: 'Block D — Posterior Balance', exercises: [
+        { name: 'Table/doorway rows', sets: 3, prescription: '10-12 reps', rest_s: 60, rationale: 'balance the pressing volume' },
+        { name: 'Prone Y-T-W raises', sets: 3, prescription: '10 each', rest_s: 45, rationale: 'lower-trap / cuff health' },
+      ] },
+    ],
+  },
+};
+
+// Dryland subtype → equipment-keyed template family. The orchestrator routes
+// dryland to the library, and block-state alternates the subtype block-to-block.
+const DRYLAND_FAMILIES = {
+  pulling_strength: DRYLAND_TEMPLATES,
+  push_core_legs: DRYLAND_TEMPLATES_PUSH,
+};
+
 // ──────────────────────────────────────────────────────────────────────────
 // Cue bank — short coach-voice lines. Picked deterministically (no RNG) so
 // generation is reproducible. Never prescribes dolphin kick.
@@ -424,9 +507,10 @@ function filterSetEquipment(set, available) {
 }
 
 function buildFallbackDryland(decision, catalogue, opts) {
-  const { block_number = 1, session_in_block = 1, active_flags = [], subtype = 'strength' } = decision ?? {};
+  const { block_number = 1, session_in_block = 1, active_flags = [], subtype = 'pulling_strength' } = decision ?? {};
   const equipmentKey = resolveEquipment(catalogue, block_number, opts.equipment, opts.equipmentAvailable);
-  const template = DRYLAND_TEMPLATES[equipmentKey] ?? DRYLAND_TEMPLATES.bodyweight;
+  const family = DRYLAND_FAMILIES[subtype] ?? DRYLAND_TEMPLATES; // unknown subtype → pull family
+  const template = family[equipmentKey] ?? family.bodyweight;
   const quadActive = [...QUAD_FLAGS].some(f => active_flags.includes(f));
 
   // Clone blocks; annotate the leg block when a quad flag is active.

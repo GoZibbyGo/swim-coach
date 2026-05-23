@@ -130,6 +130,23 @@ test('dryland fallback falls back to bodyweight when no equipment known', () => 
   assert.equal(template_id, 'dryland_bodyweight');
 });
 
+test('push_core_legs dryland subtype selects the press/legs/core family + validates', () => {
+  const decision = { type: 'dryland', subtype: 'push_core_legs', block_number: 2, session_in_block: 2, active_flags: [] };
+  const { session, template_id } = buildFallbackSession(decision, catalogue(), { equipmentAvailable: ['rings'] });
+  assert.equal(template_id, 'dryland_push_rings');
+  assert.equal(session.subtype, 'push_core_legs');
+  assert.ok(session.blocks.length >= 3);
+  const r = validateGeneratedSession(session);
+  assert.equal(r.valid, true, `errors: ${JSON.stringify(r.errors)}`);
+});
+
+test('the two dryland subtypes produce different plans (block-to-block variety)', () => {
+  const base = { type: 'dryland', block_number: 2, session_in_block: 2, active_flags: [] };
+  const pull = buildFallbackSession({ ...base, subtype: 'pulling_strength' }, catalogue(), { equipmentAvailable: [] }).template_id;
+  const push = buildFallbackSession({ ...base, subtype: 'push_core_legs' }, catalogue(), { equipmentAvailable: [] }).template_id;
+  assert.notEqual(pull, push);
+});
+
 // ──────────────────────────────────────────────────────────────────────────
 // Pre-session equipment availability (the Today checkboxes)
 
