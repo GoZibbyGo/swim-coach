@@ -725,7 +725,7 @@ function renderLogBody() {
     hint.innerHTML = `Logging your generated <strong>Block ${s.block_number} · Session ${s.session_in_block} — ${esc(s.subtype)}</strong> (${esc(s.type)}).`;
     body.innerHTML = s.type === 'dryland'
       ? `<p class="muted" style="padding:0 4px">Enter what you actually did — one box per set:</p>${buildDrylandPlannedForm(s)}`
-      : `<div class="card"><strong>Pool data</strong><label>Garmin CSV (export from Garmin Connect)</label><input type="file" id="csvFile" accept=".csv,text/csv" /></div>`;
+      : `<div class="card"><strong>Pool data</strong><label>Garmin CSV (export from Garmin Connect)</label><input type="file" id="csvFile" /></div>`;
     return;
   }
 
@@ -738,17 +738,17 @@ function renderLogBody() {
       </div>
       <div id="extPool">
         <label>Garmin CSV (what you actually swam)</label>
-        <input type="file" id="csvFile" accept=".csv,text/csv" />
+        <input type="file" id="csvFile" />
         <label>…or no watch data? Describe the sets you did</label>
         <textarea id="poolDescribe" placeholder="e.g. 8×50 free @ 1:00, 4×100 pull, 200 cooldown"></textarea>
         <label>Session plan you were given (optional file)</label>
-        <input type="file" id="extPoolPlan" accept=".txt,.md,.csv,text/*" />
+        <input type="file" id="extPoolPlan" />
       </div>
       <div id="extDry" class="hidden">
         <label>Your plan — what you intend to do (one per line, e.g. "Pull-ups 4x8")</label>
         <textarea id="extDryPlan" placeholder="Pull-ups 4x8&#10;Ring rows 4x10&#10;Hollow hold 3x25s"></textarea>
         <label>…or upload the dryland plan you were given (optional)</label>
-        <input type="file" id="extDryFile" accept=".txt,.md,.csv,text/*" />
+        <input type="file" id="extDryFile" />
         <div id="extDryResults"></div>
       </div>
     </div>`;
