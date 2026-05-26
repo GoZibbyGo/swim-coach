@@ -170,6 +170,87 @@ export const ROLLING_BEST_SEEDS = Object.freeze({
   best_threshold_pace_per_100m: '1:36',
 });
 
+// ──────────────────────────────────────────────────────────────────────────
+// One-time corrective migration: standing-start 25m scrub.
+//
+// Before the standing-start parser fix, the "best 25m" was the fastest single
+// freestyle length of ANY kind — including L2+ of a 50m rep, a turn-aided
+// "flying" split that's ~1-2s quicker than a from-a-push 25m. A 4×50m session
+// recorded a 15.0s flying split as the best 25m, burying the real standing-
+// start PR (16.6s) from the same session and miscalibrating every future
+// sprint target derived from it.
+//
+// Unlike the additive seeding above, this pass DELIBERATELY overwrites the
+// polluted values. It is gated on `migrations_applied` so it runs exactly once
+// per catalogue, then never again — so later legitimate bests are never
+// stomped. It re-derives each pool session's standing-start best from its own
+// stored per-rep splits (the first length of each non-drill interval), then
+// recomputes the 25m rolling bests, excluding the known-bad early readings
+// (≤ 2026-04-10) to match the trend-graph display filter.
+// ──────────────────────────────────────────────────────────────────────────
+
+const SCRUB_25M_KEY = 'standing_start_25m_v1';
+const SCRUB_BAD_25M_ON_OR_BEFORE = '2026-04-10'; // known-faulty 16.1/16.3 readings
+const STANDING_START_FLOOR_S = 13.0;             // below this a 25m split is implausible
+
+// Fastest standing-start length in a stored pool session: the first split of
+// each non-drill interval. Returns null when the session has no usable
+// per-rep breakdown (e.g. hand-authored or "describe the sets" logs).
+function standingStartBest(session) {
+  const bd = session?.breakdown;
+  if (!Array.isArray(bd) || bd.length === 0) return null;
+  let best = null;
+  for (const it of bd) {
+    if (it?.is_drill) continue;
+    const splits = it?.splits_s;
+    if (!Array.isArray(splits) || splits.length === 0) continue;
+    const first = splits[0]; // standing start; later splits are flying (turn-aided)
+    if (first != null && Number.isFinite(first) && first > STANDING_START_FLOOR_S) {
+      if (best == null || first < best) best = first;
+    }
+  }
+  return best == null ? null : Math.round(best * 10) / 10;
+}
+
+function scrubStandingStart25m(cat) {
+  const sessions = Array.isArray(cat.sessions) ? cat.sessions : [];
+
+  // 1) Correct each pool session's stored best_25m from its real splits, so the
+  //    Best-25m graph (which plots per-session metrics) no longer shows the dip.
+  for (const s of sessions) {
+    if (s?.type !== 'pool' || !s.metrics) continue;
+    const derived = standingStartBest(s);
+    if (derived != null && s.metrics.best_25m_split_s !== derived) {
+      const prev = s.metrics.best_25m_split_s;
+      const prevCtx = s.metrics.best_25m_split_context ?? '';
+      s.metrics.best_25m_split_s = derived;
+      s.metrics.best_25m_split_context =
+        `standing-start best (corrected from ${prev ?? 'n/a'}s` +
+        `${prevCtx ? `, was "${prevCtx}"` : ''} — flying split excluded)`;
+    }
+  }
+
+  // 2) Recompute the 25m rolling bests from corrected, in-window sessions.
+  let bestVal = null, bestDate = null, bestId = null;
+  for (const s of sessions) {
+    if (s?.type !== 'pool' || !s.metrics) continue;
+    if (String(s.date) <= SCRUB_BAD_25M_ON_OR_BEFORE) continue; // drop known-bad early data
+    const v = s.metrics.best_25m_split_s;
+    if (v != null && Number.isFinite(v) && (bestVal == null || v < bestVal)) {
+      bestVal = v; bestDate = s.date; bestId = s.id;
+    }
+  }
+  if (bestVal != null) {
+    const rb = cat.rolling_bests;
+    rb.best_25m_sprint_protocol_s = bestVal;
+    rb.best_25m_sprint_protocol_date = bestDate;
+    rb.best_25m_sprint_protocol_session_id = bestId;
+    rb.best_25m_split_s = bestVal;
+    rb.best_25m_date = bestDate;
+    rb.best_25m_session_id = bestId;
+  }
+}
+
 export function migrateCatalogue(catalogue) {
   if (catalogue == null || typeof catalogue !== 'object') return catalogue;
   const cat = structuredClone(catalogue);
@@ -185,6 +266,14 @@ export function migrateCatalogue(catalogue) {
     const lastCompleted = cat.weekly_block_tracking?.last_completed_block ?? 0;
     cat.training_phase.blocks_in_phase = (cat.training_phase.current ?? 1) === 1 ? lastCompleted : 0;
   }
+
+  // One-time corrective migrations (run exactly once per catalogue).
+  cat.migrations_applied = Array.isArray(cat.migrations_applied) ? cat.migrations_applied : [];
+  if (!cat.migrations_applied.includes(SCRUB_25M_KEY)) {
+    scrubStandingStart25m(cat);
+    cat.migrations_applied.push(SCRUB_25M_KEY);
+  }
+
   return cat;
 }
 

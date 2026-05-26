@@ -70,11 +70,20 @@ async function loadCatalogue() {
       // One-time upgrade: fold a legacy device-local pending plan into the
       // catalogue so it survives (and starts syncing).
       const legacy = localStorage.getItem(K.pendingPlanned);
+      let foldedLegacy = false;
       if (legacy && !cat.pending_session) {
-        try { cat.pending_session = JSON.parse(legacy); localStorage.setItem(K.catalogue, JSON.stringify(cat)); } catch { /* ignore */ }
+        try { cat.pending_session = JSON.parse(legacy); foldedLegacy = true; } catch { /* ignore */ }
         localStorage.removeItem(K.pendingPlanned);
       }
-      return cat;
+      // Run one-time migrations on the local copy too — not every open comes
+      // through a pull. A corrective migration (e.g. the standing-start 25m
+      // scrub) is gated to run once; when it changes anything, persist and mark
+      // dirty so the fix syncs back to GitHub and every device.
+      const before = JSON.stringify(cat);
+      const migrated = migrateCatalogue(cat);
+      if (JSON.stringify(migrated) !== before) saveCatalogue(migrated); // dirty → auto-push
+      else if (foldedLegacy) writeCatalogue(migrated);                  // quiet persist (prior behaviour)
+      return migrated;
     } catch { /* fall through */ }
   }
   const seed = await fetch(SEED).then(r => r.json());

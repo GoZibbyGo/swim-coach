@@ -429,10 +429,15 @@ function computeSummary(intervals, lengths, poolLengthM) {
   const avgDps = avg(effortLengths.map(l => l.dps_m));
   const avgStrokeRate = avg(effortLengths.map(l => l.stroke_rate_spm));
 
-  // Best 25m split = fastest single-length freestyle (Unknown counts) with
-  // no hard glitches. Drill lengths are excluded — they're not sprint
-  // efforts. Track an "unverified" candidate too: the fastest length whose
-  // only glitch is adjacent_to_glitch, flagged as suspicious-but-maybe-real.
+  // Best 25m split = fastest STANDING-START freestyle length (Unknown counts)
+  // with no hard glitches. Drill lengths are excluded — they're not sprint
+  // efforts. Only the first length of an interval counts: it starts from a
+  // stationary wall push, comparable to a from-a-push 25m the phase targets
+  // are calibrated against. Later lengths (L2+ of a 50/100) are "flying"
+  // splits — carried by entry speed and the turn push-off, ~1-2s faster — so
+  // they must not set the 25m sprint PR. Track an "unverified" candidate too:
+  // the fastest standing-start length whose only glitch is adjacent_to_glitch,
+  // flagged as suspicious-but-maybe-real.
   let best = null;
   let bestUnverified = null;
   for (const len of lengths) {
@@ -440,6 +445,7 @@ function computeSummary(intervals, lengths, poolLengthM) {
     if (len.distance_m != null && len.distance_m !== poolLengthM) continue;
     if (len.is_drill) continue;
     if (!len.is_freestyle) continue;
+    if (len.length_in_interval !== 1) continue; // flying split — not a standing-start 25m
 
     const hardGlitch = len.glitches.some(g => g !== 'adjacent_to_glitch');
     if (hardGlitch) continue;

@@ -130,6 +130,33 @@ test('best_25m_split_s picks fastest clean freestyle, ignoring drill and glitche
   assert.equal(out.summary.best_25m_unverified_s, 17.4);
 });
 
+test('best_25m_split_s ignores flying splits (L2 of a 50m), keeps standing starts', () => {
+  // INT 1: a 50m rep — L1 17.2s (standing start), L2 15.0s (flying, turn-aided,
+  //        the fastest length in the session and ABOVE the 13.0s glitch floor).
+  // INT 3: a standalone 25m sprint @ 16.5s (standing start, clean).
+  // The 15.0s flying split must NOT win — it's not a from-a-push 25m. The
+  // standing-start 16.5s sprint is the true best.
+  const csv = [
+    '"","Intervals","Swim Stroke","Lengths","Distance","Time","Cumulative Time","Avg Pace","Best Pace","Avg. Swolf","Avg HR","Max HR","Total Strokes","Avg Strokes","Calories"',
+    '"","1","Unknown","2","50","0:32.2","0:32.2","1:04","1:00","24","150","170","18","9.0","6"',
+    '"","1.1","Unknown","--","25","0:17.2","--","--","--","--","--","--","9","--","--"',
+    '"","1.2","Unknown","--","25","0:15.0","--","--","--","--","--","--","9","--","--"',
+    '"","2","Rest","--","--","2:00.0","2:32.2","--","--","--","--","--","--","--","--"',
+    '"","3","Unknown","1","25","0:16.5","2:48.7","1:06","1:06","24","160","170","7","7.0","3"',
+    '"","3.1","Unknown","--","25","0:16.5","--","--","--","--","--","--","7","--","--"',
+  ].join('\n') + '\n';
+
+  const out = parseGarminCsv(csv);
+  // Sanity: the 15.0s flying split is a clean freestyle length (the OLD parser
+  // would have wrongly picked it as the best 25m).
+  const flying = out.lengths.find(l => l.interval_number === 1 && l.length_in_interval === 2);
+  assert.equal(flying.time_s, 15.0);
+  assert.ok(flying.is_freestyle && !flying.is_drill && flying.glitches.length === 0);
+  // The best 25m is the standing-start sprint, not the faster flying split.
+  assert.equal(out.summary.best_25m_split_s, 16.5);
+  assert.equal(out.summary.best_25m_context, 'INT 3.1');
+});
+
 test('session-level aggregates compute correctly', () => {
   const out = parseGarminCsv(fixture);
   // 6 swim intervals: 100 + 50 + 25 + 25 + 25 + 25 = 250m

@@ -7,6 +7,7 @@ import {
   nextSessionId,
   appendSession,
   drylandSlotForBlock,
+  migrateCatalogue,
   SESSION_TYPES,
   POOL_SUBTYPES,
 } from '../src/schema.js';
@@ -85,6 +86,82 @@ test('appendSession prepends and validates', () => {
   assert.equal(out.sessions.length, 2);
   assert.equal(out.sessions[0].id, 2); // most-recent-first
   assert.throws(() => appendSession(cat, { id: 3, type: 'pool' }), /failed validation/);
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// One-time standing-start 25m scrub (migrateCatalogue)
+
+function pollutedCatalogue() {
+  return {
+    rolling_bests: {
+      // Polluted by a flying L2 split of a 50m rep.
+      best_25m_sprint_protocol_s: 15.0,
+      best_25m_sprint_protocol_date: '2026-05-22',
+      best_25m_sprint_protocol_session_id: 20,
+      best_25m_split_s: 15.0,
+      best_avg_swolf: 27, // must be left untouched
+    },
+    training_phase: { current: 1 },
+    weekly_block_tracking: {},
+    sessions: [
+      {
+        id: 20, date: '2026-05-22', type: 'pool', subtype: 'sprint',
+        metrics: { best_25m_split_s: 15.0, best_25m_split_context: 'INT 33.2' },
+        breakdown: [
+          { n: 5, is_drill: true, splits_s: [12.8] },          // drill push-off — excluded
+          { n: 13, is_drill: false, splits_s: [25.6] },         // standing 25m, slow
+          { n: 17, is_drill: false, splits_s: [16.6] },         // standing 25m, fastest = true best
+          { n: 33, is_drill: false, splits_s: [19.3, 15.0] },   // 50m: L1 standing, L2 15.0 flying
+        ],
+      },
+      {
+        // Hand-authored, no breakdown — its stored standing-start best is kept.
+        id: 17, date: '2026-05-18', type: 'pool', subtype: 'threshold',
+        metrics: { best_25m_split_s: 16.8, best_25m_split_context: 'INT 20, sprint finish' },
+      },
+      {
+        // Known-bad early reading — must be excluded from the rolling recompute.
+        id: 10, date: '2026-04-08', type: 'pool', subtype: 'sprint',
+        metrics: { best_25m_split_s: 16.1 },
+      },
+    ],
+  };
+}
+
+test('migrateCatalogue scrub: flying split no longer sets the 25m best', () => {
+  const out = migrateCatalogue(pollutedCatalogue());
+  // The affected session is corrected to its real standing-start best.
+  const recent = out.sessions.find(s => s.id === 20);
+  assert.equal(recent.metrics.best_25m_split_s, 16.6);
+  assert.match(recent.metrics.best_25m_split_context, /corrected/);
+  // Rolling bests recomputed to the true standing-start PR (16.6, not 15.0).
+  assert.equal(out.rolling_bests.best_25m_sprint_protocol_s, 16.6);
+  assert.equal(out.rolling_bests.best_25m_split_s, 16.6);
+  assert.equal(out.rolling_bests.best_25m_sprint_protocol_date, '2026-05-22');
+  assert.equal(out.rolling_bests.best_25m_sprint_protocol_session_id, 20);
+  // Unrelated bests are untouched.
+  assert.equal(out.rolling_bests.best_avg_swolf, 27);
+  assert.ok(out.migrations_applied.includes('standing_start_25m_v1'));
+});
+
+test('migrateCatalogue scrub: known-bad early reading (16.1) is excluded', () => {
+  const out = migrateCatalogue(pollutedCatalogue());
+  // 16.1 (2026-04-08) is faster than 16.6 but pre-cutoff — must not win.
+  assert.notEqual(out.rolling_bests.best_25m_sprint_protocol_s, 16.1);
+  assert.equal(out.rolling_bests.best_25m_sprint_protocol_s, 16.6);
+  // The early session's own metric is left as-is (no breakdown to re-derive).
+  assert.equal(out.sessions.find(s => s.id === 10).metrics.best_25m_split_s, 16.1);
+});
+
+test('migrateCatalogue scrub runs once and never re-stomps later bests', () => {
+  const once = migrateCatalogue(pollutedCatalogue());
+  // Simulate a genuine later PR set by the normal logging path.
+  once.rolling_bests.best_25m_sprint_protocol_s = 16.0;
+  once.rolling_bests.best_25m_split_s = 16.0;
+  const twice = migrateCatalogue(once);
+  assert.equal(twice.rolling_bests.best_25m_sprint_protocol_s, 16.0);
+  assert.equal(twice.rolling_bests.best_25m_split_s, 16.0);
+  assert.equal(twice.migrations_applied.filter(k => k === 'standing_start_25m_v1').length, 1);
 });
 
 test('validateCatalogue catches duplicate session ids', () => {
