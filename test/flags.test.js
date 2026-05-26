@@ -54,6 +54,30 @@ test('detects new raw 25m best when faster than all-time raw', () => {
   assert.equal(r.new_records.best_25m_split_s, 15.9);
 });
 
+test('detects new 50m best (fastest actual rep, any context)', () => {
+  const p = parsed({ summary: { best_50m_split_s: 34.3, best_50m_context: 'INT 33' } });
+  const cat = { rolling_bests: { best_50m_equiv_s: 38.0 } };
+  const r = detectFlags(p, cat);
+  assert.ok(r.flags.some(f => /NEW 50M BEST: 34\.3s — previous 38s/.test(f)));
+  assert.equal(r.new_records.best_50m_equiv_s, 34.3);
+});
+
+test('no 50m record when the rep is slower than the rolling best', () => {
+  const p = parsed({ summary: { best_50m_split_s: 39.0 } });
+  const cat = { rolling_bests: { best_50m_equiv_s: 38.0 } };
+  const r = detectFlags(p, cat);
+  assert.ok(!r.flags.some(f => /NEW 50M BEST/.test(f)));
+  assert.equal(r.new_records.best_50m_equiv_s, undefined);
+});
+
+test('detects new 100m best', () => {
+  const p = parsed({ summary: { best_100m_split_s: 89.5, best_100m_context: 'INT 5' } });
+  const cat = { rolling_bests: { best_100m_split_s: 92.0 } };
+  const r = detectFlags(p, cat);
+  assert.ok(r.flags.some(f => /NEW 100M BEST: 89\.5s — previous 92s/.test(f)));
+  assert.equal(r.new_records.best_100m_split_s, 89.5);
+});
+
 test('reports "matched" when equal to sprint protocol best', () => {
   const p = parsed({ summary: { best_25m_split_s: 16.8, best_25m_context: 'INT 20.1' } });
   const cat = { rolling_bests: { best_25m_sprint_protocol_s: 16.8, best_25m_split_s: 16.1 } };

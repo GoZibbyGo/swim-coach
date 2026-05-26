@@ -131,20 +131,22 @@ Volumes assume a 25m pool. W:R = work-to-rest ratio.
 
 Advancement is **block-based**, not calendar weeks: each phase runs for a fixed number of completed blocks (a block = 3 pool + 1 dryland). The per-phase performance numbers below are **progress targets, not pass/fail gates** — the phase rolls over on its block quota regardless of whether the targets are hit. Targets are tracked/displayed to show how progress is tracking.
 
+The targets step **monotonically** from the current state (25m ~16.6s, 50m ~34.3s, avg SWOLF ~27) toward the sub-30 goal — one stretch per phase off the rolling best, with the phase's *intent* deciding which metric leads (P1 = top-end speed, so 25m leads; P2 = race-pace integration, so 50m leads; P3 = taper/peak to the goal). Within a phase the 25m target runs ahead of the 50m on purpose: raw speed is built first, then sustained over the full distance.
+
 **Phase 1 — Sprint Development** (6 blocks; pool priority: Sprint > Technique > Threshold; sprint finish in ALL subtypes)
 - Goal: break the long SWOLF plateau, build neuromuscular top-end speed.
 - Signature work: 8–16×25 max @ ≥2 min rest, priming builds, push-off glide drills, threshold maintenance.
-- Progress targets: best 25m → 14.0s, avg SWOLF → 30, 50m → 30.0s.
+- Progress targets: best 25m → 15.5s, avg SWOLF → 27, 50m → 33.0s.
 
 **Phase 2 — Speed Integration** (6 blocks; pool priority: Race-Pace > Sprint > Technique; includes sprint finish)
 - Goal: integrate that speed into the 50 — lactate tolerance + holding race pace under fatigue; sharpen turns/underwaters.
 - Signature work: race-pace 50s (the most practical race-tolerance rep), 4×50 fast @ ~1:4 work:rest with rest shrinking as you adapt, broken 50s (25+25), short-rest 20×25 lactate sets, maintained sprint speed [source: https://oswestryotters.co.uk/wp-content/uploads/2021/01/Lactate-Tolerance.pdf] [source: https://www.traindaly.com/train-daly/blog/master-your-race-pace-how-to-find-your-ideal-swimming-speed].
-- Progress targets: best 25m → 14.0s, avg SWOLF → 28, race-pace 50m → 33.0s.
+- Progress targets: best 25m → 14.5s, avg SWOLF → 25, race-pace 50m → 31.0s.
 
 **Phase 3 — Race Sharpening** (4 blocks, then terminal; pool priority: Race Simulation > Sprint > Recovery; **no** mandatory sprint-finish block — every fast swim is the point)
 - Goal: taper and peak for the sub-30 attempt. Shorter warm-ups (200–300m), sharply reduced volume, maintained intensity [source: https://www.bretthawke.com/blog/guide-to-tapering-for-sprint-swimming].
 - Signature work: timed race-simulation 50s from a push with full recovery, breakout/bodyline speed. Readiness cues: crisp warm-ups, fast times without forcing, confidence.
-- Progress targets: 50m → sub-30.0s, avg SWOLF → 26. Terminal phase — the sub-30 50m attempt; no auto-advance.
+- Progress targets: 50m → sub-30.0s, best 25m → 14.0s, avg SWOLF → 23. Terminal phase — the sub-30 50m attempt; no auto-advance.
 
 ---
 

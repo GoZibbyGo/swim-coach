@@ -157,6 +157,28 @@ test('best_25m_split_s ignores flying splits (L2 of a 50m), keeps standing start
   assert.equal(out.summary.best_25m_context, 'INT 3.1');
 });
 
+test('best_50m_split_s / best_100m_split_s pick the fastest full-distance reps', () => {
+  // INT 1: a 100m rep (4 lengths, 96.0s). INT 3: a 50m rep (2 lengths, 33.0s).
+  const csv = [
+    '"","Intervals","Swim Stroke","Lengths","Distance","Time","Cumulative Time","Avg Pace","Best Pace","Avg. Swolf","Avg HR","Max HR","Total Strokes","Avg Strokes","Calories"',
+    '"","1","Unknown","4","100","1:36.0","1:36.0","1:36","1:30","32","120","140","40","10.0","12"',
+    '"","1.1","Unknown","--","25","0:24.0","--","--","--","--","--","--","10","--","--"',
+    '"","1.2","Unknown","--","25","0:24.0","--","--","--","--","--","--","10","--","--"',
+    '"","1.3","Unknown","--","25","0:24.0","--","--","--","--","--","--","10","--","--"',
+    '"","1.4","Unknown","--","25","0:24.0","--","--","--","--","--","--","10","--","--"',
+    '"","2","Rest","--","--","2:00.0","3:36.0","--","--","--","--","--","--","--","--"',
+    '"","3","Unknown","2","50","0:33.0","4:09.0","1:06","1:00","24","150","165","18","9.0","6"',
+    '"","3.1","Unknown","--","25","0:17.5","--","--","--","--","--","--","9","--","--"',
+    '"","3.2","Unknown","--","25","0:15.5","--","--","--","--","--","--","9","--","--"',
+  ].join('\n') + '\n';
+
+  const out = parseGarminCsv(csv);
+  assert.equal(out.summary.best_50m_split_s, 33.0);
+  assert.equal(out.summary.best_50m_context, 'INT 3');
+  assert.equal(out.summary.best_100m_split_s, 96.0);
+  assert.equal(out.summary.best_100m_context, 'INT 1');
+});
+
 test('session-level aggregates compute correctly', () => {
   const out = parseGarminCsv(fixture);
   // 6 swim intervals: 100 + 50 + 25 + 25 + 25 + 25 = 250m

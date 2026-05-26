@@ -57,14 +57,31 @@ test('phase 2 → 3 after 6 blocks; phase 3 is terminal', () => {
 });
 
 test('phaseProgress reports block progress + target tracking', () => {
-  const p = phaseProgress(cat(1, 3, { best_25m_sprint_protocol_s: 16.6, best_avg_swolf: 30, best_50m_equiv_s: 35 }));
+  const p = phaseProgress(cat(1, 3, { best_25m_sprint_protocol_s: 16.6, best_avg_swolf: 27, best_50m_equiv_s: 33.0 }));
   assert.equal(p.phase, 1);
   assert.equal(p.blocks_done, 3);
   assert.equal(p.blocks_total, 6);
   assert.equal(p.pct, 50);
-  // SWOLF target 30 met (30<=30); 25m target 14.0 not met.
+  // P1 targets: 25m 15.5, SWOLF 27, 50m 33.0. SWOLF met (27<=27); 50m met (33<=33);
+  // 25m not met (16.6>15.5).
   const swolf = p.targets.find(t => t.metric === 'best_avg_swolf');
   const s25 = p.targets.find(t => t.metric === 'best_25m_sprint_protocol_s');
+  const s50 = p.targets.find(t => t.metric === 'best_50m_equiv_s');
   assert.equal(swolf.met, true);
+  assert.equal(s50.met, true);
   assert.equal(s25.met, false);
+});
+
+test('phase targets step monotonically toward the sub-30 goal', () => {
+  const tgt = (phase, metric) => phaseDef(phase).targets.find(t => t.metric === metric)?.target;
+  // 25m sprint tightens each phase: 15.5 → 14.5 → 14.0
+  assert.ok(tgt(1, 'best_25m_sprint_protocol_s') > tgt(2, 'best_25m_sprint_protocol_s'));
+  assert.ok(tgt(2, 'best_25m_sprint_protocol_s') > tgt(3, 'best_25m_sprint_protocol_s'));
+  // 50m tightens each phase and lands on the sub-30 goal: 33 → 31 → 30
+  assert.ok(tgt(1, 'best_50m_equiv_s') > tgt(2, 'best_50m_equiv_s'));
+  assert.ok(tgt(2, 'best_50m_equiv_s') > tgt(3, 'best_50m_equiv_s'));
+  assert.equal(tgt(3, 'best_50m_equiv_s'), 30.0);
+  // SWOLF tightens each phase: 27 → 25 → 23
+  assert.ok(tgt(1, 'best_avg_swolf') > tgt(2, 'best_avg_swolf'));
+  assert.ok(tgt(2, 'best_avg_swolf') > tgt(3, 'best_avg_swolf'));
 });

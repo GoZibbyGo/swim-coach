@@ -164,6 +164,47 @@ test('migrateCatalogue scrub runs once and never re-stomps later bests', () => {
   assert.equal(twice.migrations_applied.filter(k => k === 'standing_start_25m_v1').length, 1);
 });
 
+test('migrateCatalogue backfills 50m/100m bests from breakdowns (improve-only)', () => {
+  const c = {
+    rolling_bests: { best_50m_equiv_s: 38.0, best_100m_split_s: 92.0 },
+    training_phase: { current: 1 }, weekly_block_tracking: {},
+    sessions: [
+      {
+        id: 30, date: '2026-05-22', type: 'pool', subtype: 'sprint',
+        metrics: { best_25m_split_s: 16.6 },
+        breakdown: [
+          { n: 1, is_drill: false, time_s: 96.0, splits_s: [24.0, 24.0, 24.0, 24.0] }, // 100m, slower than 92 → ignored
+          { n: 3, is_drill: false, time_s: 34.3, splits_s: [19.3, 15.0] },             // 50m, faster than 38 → wins
+          { n: 7, is_drill: false, time_s: 16.6, splits_s: [16.6] },                   // standing 25m (keeps the scrub a no-op)
+          { n: 5, is_drill: true,  time_s: 12.8, splits_s: [12.8] },                   // drill, ignored
+        ],
+      },
+    ],
+  };
+  const out = migrateCatalogue(c);
+  assert.equal(out.rolling_bests.best_50m_equiv_s, 34.3);
+  assert.equal(out.rolling_bests.best_50m_equiv_session_id, 30);
+  assert.equal(out.rolling_bests.best_50m_equiv_date, '2026-05-22');
+  // The 100m rep (96.0) is slower than the existing 92.0 → not raised.
+  assert.equal(out.rolling_bests.best_100m_split_s, 92.0);
+  assert.ok(out.migrations_applied.includes('track_50m_100m_v1'));
+});
+
+test('50m/100m backfill is improve-only and runs once', () => {
+  const c = {
+    rolling_bests: { best_50m_equiv_s: 30.0 },
+    training_phase: { current: 1 }, weekly_block_tracking: {},
+    sessions: [
+      { id: 31, date: '2026-05-23', type: 'pool', subtype: 'sprint',
+        breakdown: [{ n: 1, is_drill: false, time_s: 34.3, splits_s: [19.3, 15.0] }] },
+    ],
+  };
+  const out = migrateCatalogue(c);
+  assert.equal(out.rolling_bests.best_50m_equiv_s, 30.0); // 34.3 must not raise a better 30.0
+  const again = migrateCatalogue(out);
+  assert.equal(again.migrations_applied.filter(k => k === 'track_50m_100m_v1').length, 1);
+});
+
 test('validateCatalogue catches duplicate session ids', () => {
   const cat = {
     athlete: {}, training_phase: {}, rolling_bests: {}, weekly_block_tracking: {},

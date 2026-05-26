@@ -1,9 +1,23 @@
 // Phase definitions — single source of truth for the 3-phase progression,
-// per training_phase_plan.md.
+// per the KB (`knowledge/swimming-coaching-kb.md` §6 Periodization).
 //
 // Advancement is BLOCK-based (not calendar weeks): each phase runs for a fixed
 // number of completed blocks (a block = 3 pool + 1 dryland). The performance
 // targets are tracked for display/progress only — they do NOT gate advancement.
+//
+// MILESTONE CALIBRATION (2026-05-26). The per-phase numbers step monotonically
+// from Julian's current state (25m ~16.6s, 50m ~34.3s, avg SWOLF ~27) toward
+// the sub-30 50m goal, one stretch per phase off the rolling best (KB §6 line
+// "tighten one variable at a time"). The phase INTENT drives which metric leads:
+//   P1 Sprint Development  — build top-end speed: 25m leads (15.5s); 50m is
+//                            secondary (33.0s) as 50s are just being introduced.
+//   P2 Speed Integration   — convert speed into race pace: 50m leads (31.0s);
+//                            25m sharpens (14.5s).
+//   P3 Race Sharpening     — taper + peak: 50m to the sub-30.0s goal; 25m peaks
+//                            at 14.0s (the KB endpoint; taper supercompensation).
+//   SWOLF tightens 27 → 25 → 23 across the phases (efficiency under speed).
+// Within a phase the 25m runs "ahead" of the 50m on purpose — raw speed is
+// built before it can be sustained over the full distance.
 
 export const PHASES = Object.freeze({
   1: {
@@ -21,9 +35,9 @@ export const PHASES = Object.freeze({
       recovery:  { min: 1200, max: 1500 },
     },
     targets: [
-      { label: 'Best 25m sprint', metric: 'best_25m_sprint_protocol_s', target: 14.0, unit: 's', lower: true },
-      { label: 'Avg session SWOLF', metric: 'best_avg_swolf', target: 30, unit: '', lower: true },
-      { label: 'Best 50m equiv', metric: 'best_50m_equiv_s', target: 30.0, unit: 's', lower: true },
+      { label: 'Best 25m sprint', metric: 'best_25m_sprint_protocol_s', target: 15.5, unit: 's', lower: true },
+      { label: 'Avg session SWOLF', metric: 'best_avg_swolf', target: 27, unit: '', lower: true },
+      { label: 'Best 50m', metric: 'best_50m_equiv_s', target: 33.0, unit: 's', lower: true },
     ],
     next_phase: 2,
     terminal: false,
@@ -43,9 +57,9 @@ export const PHASES = Object.freeze({
       recovery:  { min: 1200, max: 1500 },
     },
     targets: [
-      { label: 'Best 25m sprint', metric: 'best_25m_sprint_protocol_s', target: 14.0, unit: 's', lower: true },
-      { label: 'Avg session SWOLF', metric: 'best_avg_swolf', target: 28, unit: '', lower: true },
-      { label: 'Race-pace 50m', metric: 'best_50m_equiv_s', target: 33.0, unit: 's', lower: true },
+      { label: 'Best 25m sprint', metric: 'best_25m_sprint_protocol_s', target: 14.5, unit: 's', lower: true },
+      { label: 'Avg session SWOLF', metric: 'best_avg_swolf', target: 25, unit: '', lower: true },
+      { label: 'Race-pace 50m', metric: 'best_50m_equiv_s', target: 31.0, unit: 's', lower: true },
     ],
     next_phase: 3,
     terminal: false,
@@ -65,7 +79,8 @@ export const PHASES = Object.freeze({
     },
     targets: [
       { label: 'Best 50m time', metric: 'best_50m_equiv_s', target: 30.0, unit: 's', lower: true },
-      { label: 'Avg session SWOLF', metric: 'best_avg_swolf', target: 26, unit: '', lower: true },
+      { label: 'Best 25m sprint', metric: 'best_25m_sprint_protocol_s', target: 14.0, unit: 's', lower: true },
+      { label: 'Avg session SWOLF', metric: 'best_avg_swolf', target: 23, unit: '', lower: true },
     ],
     next_phase: null,
     terminal: true,

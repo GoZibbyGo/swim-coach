@@ -251,6 +251,65 @@ function scrubStandingStart25m(cat) {
   }
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// One-time backfill: 50m / 100m bests from existing logged reps.
+//
+// `best_50m_equiv_s` / `best_100m_split_s` were never updated from sessions
+// (no flag-detection path existed before this change), so they sat at their
+// hand-seeded estimates. Now that the engine tracks them going forward, this
+// pass seeds them from history: the fastest actual full-distance rep already
+// recorded in any pool session's stored `breakdown`. Improve-only — it never
+// raises a best, matching the going-forward "new best beats prior" rule.
+// ──────────────────────────────────────────────────────────────────────────
+
+const TRACK_50_100_KEY = 'track_50m_100m_v1';
+
+// Fastest full-distance rep in a session's stored breakdown: a non-drill
+// interval with exactly `splitCount` length splits. Time = interval time, or
+// the sum of the splits. Returns seconds (1 dp) or null.
+function bestRepFromBreakdown(session, splitCount) {
+  const bd = session?.breakdown;
+  if (!Array.isArray(bd)) return null;
+  let best = null;
+  for (const it of bd) {
+    if (it?.is_drill) continue;
+    const splits = it?.splits_s;
+    if (!Array.isArray(splits) || splits.length !== splitCount) continue;
+    if (!splits.every(x => x != null && Number.isFinite(x))) continue;
+    const t = (it.time_s != null && Number.isFinite(it.time_s))
+      ? it.time_s
+      : splits.reduce((sum, x) => sum + x, 0);
+    if (t > 0 && (best == null || t < best)) best = Math.round(t * 10) / 10;
+  }
+  return best;
+}
+
+function backfill50m100m(cat) {
+  const sessions = Array.isArray(cat.sessions) ? cat.sessions : [];
+  const rb = cat.rolling_bests;
+  const scan = (splitCount) => {
+    let val = null, date = null, id = null;
+    for (const s of sessions) {
+      if (s?.type !== 'pool') continue;
+      const t = bestRepFromBreakdown(s, splitCount);
+      if (t != null && (val == null || t < val)) { val = t; date = s.date; id = s.id; }
+    }
+    return { val, date, id };
+  };
+  const r50 = scan(2);
+  if (r50.val != null && (rb.best_50m_equiv_s == null || r50.val < rb.best_50m_equiv_s)) {
+    rb.best_50m_equiv_s = r50.val;
+    rb.best_50m_equiv_date = r50.date;
+    rb.best_50m_equiv_session_id = r50.id;
+  }
+  const r100 = scan(4);
+  if (r100.val != null && (rb.best_100m_split_s == null || r100.val < rb.best_100m_split_s)) {
+    rb.best_100m_split_s = r100.val;
+    rb.best_100m_split_date = r100.date;
+    rb.best_100m_split_session_id = r100.id;
+  }
+}
+
 export function migrateCatalogue(catalogue) {
   if (catalogue == null || typeof catalogue !== 'object') return catalogue;
   const cat = structuredClone(catalogue);
@@ -272,6 +331,10 @@ export function migrateCatalogue(catalogue) {
   if (!cat.migrations_applied.includes(SCRUB_25M_KEY)) {
     scrubStandingStart25m(cat);
     cat.migrations_applied.push(SCRUB_25M_KEY);
+  }
+  if (!cat.migrations_applied.includes(TRACK_50_100_KEY)) {
+    backfill50m100m(cat);
+    cat.migrations_applied.push(TRACK_50_100_KEY);
   }
 
   return cat;

@@ -390,6 +390,10 @@ function emptySummary() {
     best_25m_context: null,
     best_25m_unverified_s: null,
     best_25m_unverified_context: null,
+    best_50m_split_s: null,
+    best_50m_context: null,
+    best_100m_split_s: null,
+    best_100m_context: null,
   };
 }
 
@@ -405,6 +409,27 @@ function round1(n) {
 
 function round2(n) {
   return n == null ? null : Math.round(n * 100) / 100;
+}
+
+// Fastest full-distance freestyle rep: a single non-rest interval whose lengths
+// are all freestyle, non-drill, full pool length, and glitch-free. Used for the
+// 50m (2 lengths) and 100m (4 lengths) bests. Counts ANY context — fresh or
+// fatigued — because these are the athlete's fastest *actual* reps at that
+// distance (per Julian's choice), not an estimate.
+function bestFreestyleRep(intervals, lengthCount, poolLengthM) {
+  let best = null;
+  for (const it of intervals) {
+    if (it.is_rest) continue;
+    const lens = it.lengths ?? [];
+    if (lens.length !== lengthCount) continue;
+    if (!lens.every(l => l.is_freestyle && !l.is_drill)) continue;
+    if (lens.some(l => l.distance_m != null && l.distance_m !== poolLengthM)) continue;
+    if (lens.some(l => (l.glitches ?? []).some(g => g !== 'adjacent_to_glitch'))) continue;
+    let t = it.time_s;
+    if (t == null && lens.every(l => l.time_s != null)) t = lens.reduce((s, l) => s + l.time_s, 0);
+    if (t != null && t > 0 && (best == null || t < best.t)) best = { t: round1(t), interval: it.interval_number };
+  }
+  return best;
 }
 
 function computeSummary(intervals, lengths, poolLengthM) {
@@ -457,6 +482,10 @@ function computeSummary(intervals, lengths, poolLengthM) {
     }
   }
 
+  // Fastest actual 50m (2-length) and 100m (4-length) freestyle reps.
+  const best50 = bestFreestyleRep(intervals, 2, poolLengthM);
+  const best100 = bestFreestyleRep(intervals, 4, poolLengthM);
+
   return {
     total_distance_m: totalDistance || null,
     total_time_s: totalTime || null,
@@ -473,5 +502,9 @@ function computeSummary(intervals, lengths, poolLengthM) {
     best_25m_unverified_context: bestUnverified
       ? `INT ${bestUnverified.interval_number}.${bestUnverified.length_in_interval} — adjacent to a glitched length`
       : null,
+    best_50m_split_s: best50 ? best50.t : null,
+    best_50m_context: best50 ? `INT ${best50.interval}` : null,
+    best_100m_split_s: best100 ? best100.t : null,
+    best_100m_context: best100 ? `INT ${best100.interval}` : null,
   };
 }

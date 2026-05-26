@@ -89,6 +89,26 @@ export function detectRecords(parsed, rollingBests = {}) {
     }
   }
 
+  // ── Best 50m (fastest actual 50m rep this session — any context) ──
+  const best50 = s.best_50m_split_s;
+  if (best50 != null) {
+    const prev50 = rollingBests.best_50m_equiv_s;
+    if (prev50 == null || best50 < prev50) {
+      flags.push(`NEW 50M BEST: ${best50}s${prev50 != null ? ` — previous ${prev50}s` : ''} (${s.best_50m_context ?? 'fastest 50m rep'}).`);
+      newRecords.best_50m_equiv_s = best50;
+    }
+  }
+
+  // ── Best 100m (fastest actual 100m rep this session — any context) ──
+  const best100 = s.best_100m_split_s;
+  if (best100 != null) {
+    const prev100 = rollingBests.best_100m_split_s;
+    if (prev100 == null || best100 < prev100) {
+      flags.push(`NEW 100M BEST: ${best100}s${prev100 != null ? ` — previous ${prev100}s` : ''} (${s.best_100m_context ?? 'fastest 100m rep'}).`);
+      newRecords.best_100m_split_s = best100;
+    }
+  }
+
   // ── Session avg SWOLF ──
   if (s.avg_swolf != null) {
     const prev = rollingBests.best_avg_swolf;
