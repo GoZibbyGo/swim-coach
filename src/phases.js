@@ -95,6 +95,14 @@ export function phaseDef(phaseNumber) {
 export function phasePriority(phaseNumber) { return phaseDef(phaseNumber).pool_priority; }
 export function phaseHasSprintFinish(phaseNumber) { return phaseDef(phaseNumber).sprint_finish === true; }
 
+// The milestone target value for a metric in a given phase (or null). Lets
+// other modules (e.g. targets.js) reference the live per-phase milestone
+// rather than a static copy that goes stale when the phase advances.
+export function phaseTargetFor(phaseNumber, metric) {
+  const t = PHASES[phaseNumber]?.targets?.find(x => x.metric === metric);
+  return t ? t.target : null;
+}
+
 // Phase-specific pool volume range for a subtype (falls back to null if the
 // subtype isn't part of that phase).
 export function volumeTargetsForPhase(phaseNumber, subtype) {

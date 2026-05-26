@@ -19,6 +19,7 @@
 // All step sizes are exported and tunable.
 
 import { parseTimeToSeconds } from './garmin-parser.js';
+import { phaseTargetFor } from './phases.js';
 
 // ──────────────────────────────────────────────────────────────────────────
 // Tunable step sizes. Adjust here to make progression more or less aggressive.
@@ -68,21 +69,23 @@ function rb(catalogue) {
   return catalogue?.rolling_bests ?? {};
 }
 
-function phaseGoals(catalogue) {
-  return catalogue?.training_phase?.phase_goals ?? {};
+function currentPhase(catalogue) {
+  return catalogue?.training_phase?.current ?? 1;
 }
 
 /**
  * Compute the SWOLF target: one better than the current best, but never
- * tighter than the phase's stated swolf_target (no point asking for 28 when
- * the phase goal is 30 and the best is 31 — step toward the goal sensibly).
+ * tighter than the current phase's SWOLF milestone (no point asking for 24 in
+ * Phase 1 when the milestone is 27 and the best is 28 — step toward it
+ * sensibly). The milestone comes live from phases.js, so it tightens
+ * automatically as the phase advances (27 → 25 → 23).
  */
 function swolfTarget(catalogue) {
   const best = rb(catalogue).best_avg_swolf;
   if (best == null) return null;
   const stepped = best - TARGET_STEPS.swolf_stretch;
-  const phaseFloor = phaseGoals(catalogue).swolf_target;
-  // The target should not undershoot the phase goal by more than the step.
+  const phaseFloor = phaseTargetFor(currentPhase(catalogue), 'best_avg_swolf');
+  // The target should not undershoot the phase milestone by more than the step.
   if (phaseFloor != null && stepped < phaseFloor) return phaseFloor;
   return stepped;
 }
@@ -98,7 +101,7 @@ function sprintSwolfTarget(catalogue) {
  */
 function sprintTargets(catalogue) {
   const best = rb(catalogue).best_25m_sprint_protocol_s ?? rb(catalogue).best_25m_split_s;
-  const phaseTarget = phaseGoals(catalogue).best_25m_target_s;
+  const phaseTarget = phaseTargetFor(currentPhase(catalogue), 'best_25m_sprint_protocol_s');
   return {
     beat_25m_s: best ?? null,
     stretch_25m_s: best != null ? round1(best - TARGET_STEPS.sprint_25m_stretch_s) : null,
@@ -140,7 +143,7 @@ function techniqueTargets(catalogue) {
  */
 function racePaceTargets(catalogue) {
   const best50 = rb(catalogue).best_50m_equiv_s;
-  const phase50 = phaseGoals(catalogue).best_50m_target_s;
+  const phase50 = phaseTargetFor(currentPhase(catalogue), 'best_50m_equiv_s');
   return {
     beat_50m_s: best50 ?? null,
     stretch_50m_s: best50 != null ? round1(best50 - TARGET_STEPS.race_50m_stretch_s) : null,

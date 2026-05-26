@@ -1,4 +1,4 @@
-# Swim Coach — session handoff (current state: 2026-05-26, SW cache v12)
+# Swim Coach — session handoff (current state: 2026-05-26, SW cache v13)
 
 Self-contained quick-start for a fresh Claude Code session. **Read order:** this file → `../README.md` (full architecture) → `coaching-project-brief.md` / `eval-grading-brief.md` / `coaching-checks.md` → `src/*`.
 
@@ -9,12 +9,12 @@ Self-contained quick-start for a fresh Claude Code session. **Read order:** this
 - ⚠️ **The app lives in `Swimming Coach_app/`, a SIBLING of the usual cwd `Swimming Coach_code/`.** Globbing the cwd looks almost empty — the code is next door.
 - **Deployed & live:** <https://gozibbygo.github.io/swim-coach/> (GitHub Pages, repo **`GoZibbyGo/swim-coach`**, public, branch `main` / root).
 - **Catalogue sync repo:** **`GoZibbyGo/swim-catalogue`** (private) holds `catalogue.json`; the app reads/writes it via a fine-grained PAT entered in Settings per device.
-- **213 tests** pass (`npm test`). **SW cache currently `swimcoach-v12`** (bump on every precached-file change).
+- **214 tests** pass (`npm test`). **SW cache currently `swimcoach-v13`** (bump on every precached-file change).
 - `.env` (gitignored, app root) holds the real `GEMINI_API_KEY` for eval re-runs. Never put the key in chat/commits.
 
 ## 2. How to run
 ```
-npm test                                   # 213 tests (Node built-in runner)
+npm test                                   # 214 tests (Node built-in runner)
 node scripts/serve.js                       # dev server → http://localhost:5173/web/  (note the /web/ suffix)
 GEMINI_API_KEY=… node scripts/eval-batch.js [N]   # training-camp self-play eval → eval-output/ (read-only on the catalogue)
 ```
@@ -22,7 +22,7 @@ Preview tool: `.claude/launch.json` exists in the **code dir** (cwd) with `autoP
 
 ## 3. Deploy / update procedure
 1. Edit → `npm test` → commit → `git -C "<app>" push origin main` (cached creds work; **`gh` is NOT installed**).
-2. **Bump `CACHE` in `sw.js`** (v12 → v13 …) whenever a precached file changes, AND add any *new* precached file to the `SHELL` array in `sw.js`.
+2. **Bump `CACHE` in `sw.js`** (v13 → v14 …) whenever a precached file changes, AND add any *new* precached file to the `SHELL` array in `sw.js`.
 3. Pages rebuilds in ~15–60s; verify: `curl https://gozibbygo.github.io/swim-coach/sw.js | grep swimcoach-v`.
 4. Devices: reopen the installed PWA **twice while online** (first reopen downloads the update, second runs it) to pick up the new shell.
 
@@ -45,11 +45,11 @@ Two inputs, same output (code changes a Code session makes):
 - Either returns a **feedback file** of code-change instructions → implement in a Code session → deploy.
 - **Done so far:** Round 1 (graded **C+ / D**) and Round 2 (**B+ / B-**) both fully implemented + deployed, plus the round-2 deferred items (pool-priority frequency weighting; `push_core_legs` dryland subtype variety). **All findings from rounds 1–2 are addressed.**
 - **Ad-hoc fix (2026-05-26, v11):** user noticed Best-25m dropped 16.8s→15s after the first 4×50m session. Root cause: the parser counted the *fastest single freestyle length of any kind* as the 25m best, so a flying L2 split of a 50m (turn-aided, ~1–2s quicker than a standing start) overwrote the PR and miscalibrated the 14s target. Fixed (standing-start-only; see §4 `garmin-parser.js`) + a one-time gated scrub migration (`standing_start_25m_v1`) that re-derives each pool session's standing-start best from its stored `breakdown` splits and recomputes the 25m rolling bests, excluding pre-`TREND_AFTER_DATE` bad data. Real corrected PR = **16.6s** (a genuine new best). User chose **not** to rewrite the stale "15s best" text on that one old session's stored `coach_flags` (cosmetic only; appears in that session's Feedback debrief + block-report export).
-- **Ad-hoc work (2026-05-26, v12):** (1) **50m/100m bests now auto-track.** `best_50m_equiv_s` / `best_100m_split_s` were static seeded estimates with NO update path (e.g. a real 34.3s 50m never registered). Now the parser computes `best_50m_split_s` / `best_100m_split_s` (fastest actual 2-/4-length freestyle rep, **any context** per user's choice), flags+writer record them, and a gated backfill (`track_50m_100m_v1`) seeds them from history (improve-only). Julian's 50m → **34.3s**. (2) **Phase milestones recalibrated.** They didn't progress (50m went 30→33→30; 25m flat 14.0→14.0 — the KB §6 had the same flaw). Now monotonic toward sub-30: 25m **15.5→14.5→14.0**, 50m **33→31→30**, SWOLF **27→25→23**; phase intent drives which metric leads (P1 speed, P2 race-pace, P3 peak). Both `phases.js` AND KB §6 updated. NOTE: session-generation targets (`targets.js`) still read the static end-goals in `catalogue.training_phase.phase_goals` (25m 14.0 / 50m 30.0), separate from the per-phase ring milestones — left as-is (sessions orient toward the ultimate goal).
+- **Ad-hoc work (2026-05-26, v12):** (1) **50m/100m bests now auto-track.** `best_50m_equiv_s` / `best_100m_split_s` were static seeded estimates with NO update path (e.g. a real 34.3s 50m never registered). Now the parser computes `best_50m_split_s` / `best_100m_split_s` (fastest actual 2-/4-length freestyle rep, **any context** per user's choice), flags+writer record them, and a gated backfill (`track_50m_100m_v1`) seeds them from history (improve-only). Julian's 50m → **34.3s**. (2) **Phase milestones recalibrated.** They didn't progress (50m went 30→33→30; 25m flat 14.0→14.0 — the KB §6 had the same flaw). Now monotonic toward sub-30: 25m **15.5→14.5→14.0**, 50m **33→31→30**, SWOLF **27→25→23**; phase intent drives which metric leads (P1 speed, P2 race-pace, P3 peak). Both `phases.js` AND KB §6 updated. (3) **Session-generation targets are now phase-aware too:** `targets.js` reads the per-phase milestones live via `phaseTargetFor()` (phases.js) instead of the static `catalogue.training_phase.phase_goals`, so the in-session "phase target" reference (`phase_25m_target_s` / `phase_50m_target_s`) and the SWOLF floor match the ring and tighten as the phase advances. This also fixed a latent bug: `phase_goals` was seeded at Phase-1 values and **never updated on phase advancement**, so it would have been stale in Phases 2/3. (The per-session "beat your best / stretch" target was already adaptive off rolling bests — unchanged.)
 - **Gemini free daily quota is low (~one full 10-session eval/day; resets US-Pacific midnight ≈ the user's evening).** Suggest `node scripts/eval-batch.js 7` to fit the cap. The eval output now includes the **complete per-interval table** the feedback received, so grading judges fabrication accurately.
 
 ## 6. Current state & immediate next step
-- Everything above is implemented, tested, committed, and **live at v12**.
+- Everything above is implemented, tested, committed, and **live at v13**.
 - **Next:** when the Gemini quota resets, re-run the eval (`7`) → grade in the claude.ai project → bring the feedback file back → implement. Goal: confirm rounds 1–2 pushed grades toward A-range.
 - **Known open issue (mobile):** the installed Android PWA's file picker doesn't return the selected file (a known Android standalone-PWA limitation) — confirmed it works in a Chrome **tab** and on desktop but not the installed app. **User's decision: log pool CSVs on the desktop (syncs to phone via GitHub); phone is for generate/view/dryland/"describe the sets" logging.** A **Web Share Target** fix (share a CSV → opens in the app) is designed but **shelved** unless the user asks ("let's do the share target"). The `accept` filters were already removed from all file inputs (helped desktop/tab; didn't fix installed-PWA).
 

@@ -28,10 +28,8 @@ test('paceToSeconds and secondsToPace round-trip', () => {
 
 function catalogue() {
   return {
-    training_phase: {
-      current: 1,
-      phase_goals: { swolf_target: 30, best_25m_target_s: 14.0, best_50m_target_s: 30.0 },
-    },
+    // Phase milestones now come live from phases.js, not a static phase_goals.
+    training_phase: { current: 1 },
     rolling_bests: {
       best_25m_split_s: 16.1,
       best_25m_sprint_protocol_s: 16.8,
@@ -53,7 +51,7 @@ test('sprint targets: beat current best, stretch -0.3s, swolf best -1', () => {
   assert.equal(t.stretch_25m_s, 16.5);          // 16.8 - 0.3
   assert.equal(t.sprint_swolf_target, 23);       // 24 - 1
   assert.equal(t.stroke_count_target, 7);
-  assert.equal(t.phase_25m_target_s, 14.0);
+  assert.equal(t.phase_25m_target_s, 15.5);      // Phase-1 25m milestone (live from phases.js)
 });
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -67,16 +65,16 @@ test('threshold targets: effort-based (no /100m pace target), swolf stepped towa
   assert.match(t.effort, /RPE/);
   assert.equal(t.stroke_count_target, 9);
   assert.equal(t.pace_context_per_100m, '1:36'); // kept as analysis context only
-  // swolf best 31 - 1 = 30, which equals phase floor (30) → 30
+  // swolf best 31 - 1 = 30; Phase-1 SWOLF milestone (floor) is 27; 30 ≥ 27 → 30
   assert.equal(t.swolf_target, 30);
 });
 
-test('swolf target never undershoots the phase goal', () => {
+test('swolf target never undershoots the current phase milestone', () => {
   const cat = catalogue();
-  cat.rolling_bests.best_avg_swolf = 30; // already at goal
+  cat.rolling_bests.best_avg_swolf = 27; // sitting at the Phase-1 milestone
   const t = computeTargets(cat, 'threshold');
-  // 30 - 1 = 29, but phase floor is 30 → clamped to 30
-  assert.equal(t.swolf_target, 30);
+  // 27 - 1 = 26, but the Phase-1 SWOLF milestone (floor) is 27 → clamped to 27
+  assert.equal(t.swolf_target, 27);
 });
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -86,7 +84,17 @@ test('race_pace targets: 50m best -1s', () => {
   const t = computeTargets(catalogue(), 'race_pace');
   assert.equal(t.beat_50m_s, 38.0);
   assert.equal(t.stretch_50m_s, 37.0);
-  assert.equal(t.phase_50m_target_s, 30.0);
+  assert.equal(t.phase_50m_target_s, 33.0);      // Phase-1 50m milestone (live from phases.js)
+});
+
+test('phase target references follow the CURRENT phase, not a static goal', () => {
+  const cat = catalogue();
+  cat.training_phase.current = 2;
+  assert.equal(computeTargets(cat, 'sprint').phase_25m_target_s, 14.5);   // P2 25m milestone
+  assert.equal(computeTargets(cat, 'race_pace').phase_50m_target_s, 31.0); // P2 50m milestone
+  // SWOLF floor also tightens with the phase: P2 milestone is 25.
+  cat.rolling_bests.best_avg_swolf = 25;
+  assert.equal(computeTargets(cat, 'threshold').swolf_target, 25);         // 25-1=24 < 25 → clamp to 25
 });
 
 // ──────────────────────────────────────────────────────────────────────────
