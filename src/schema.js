@@ -310,6 +310,65 @@ function backfill50m100m(cat) {
   }
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// One-time cleanup: remove identical-breakdown duplicate pool sessions.
+//
+// If a session is logged twice (e.g. logged once against a pending plan, then
+// again via the External path after pending cleared), the second entry has the
+// same date, type, and byte-identical per-interval `breakdown`. That's a
+// physical-session duplicate, not two real sessions — so the engine's block
+// counter advances one too many times. This pass detects exact-breakdown
+// duplicates on the same (date, type), keeps the earliest, removes the rest,
+// and rolls back the block counters by the removed sessions' types.
+// ──────────────────────────────────────────────────────────────────────────
+
+const DEDUPE_KEY = 'dedupe_identical_sessions_v1';
+
+function breakdownSignature(s) {
+  if (!Array.isArray(s?.breakdown) || s.breakdown.length === 0) return null;
+  return s.breakdown
+    .map(it => `${it?.n}:${it?.time_s}:${(Array.isArray(it?.splits_s) ? it.splits_s : []).join(',')}`)
+    .join('|');
+}
+
+function dedupeIdenticalSessions(cat) {
+  const sessions = Array.isArray(cat.sessions) ? cat.sessions : [];
+  // Walk oldest → newest so the FIRST occurrence of a signature is kept (the
+  // session linked to the original plan, before any re-log) and later
+  // duplicates are flagged for removal. Catalogue is stored most-recent-first.
+  const seen = new Map();
+  const removeIds = new Set();
+  for (let i = sessions.length - 1; i >= 0; i--) {
+    const s = sessions[i];
+    const sig = breakdownSignature(s);
+    if (sig == null) continue;
+    const key = `${s.date}|${s.type}|${sig}`;
+    if (seen.has(key)) removeIds.add(s.id);
+    else seen.set(key, s.id);
+  }
+  if (removeIds.size === 0) return;
+
+  // Tally what's being removed by type, then roll back the block counters.
+  let poolRemoved = 0, drylandRemoved = 0;
+  for (const s of sessions) {
+    if (!removeIds.has(s.id)) continue;
+    if (s.type === 'pool') poolRemoved++;
+    else if (s.type === 'dryland') drylandRemoved++;
+  }
+  cat.sessions = sessions.filter(s => !removeIds.has(s.id));
+  const wbt = cat.weekly_block_tracking;
+  if (wbt) {
+    wbt.current_block_pool_count = Math.max(0, (wbt.current_block_pool_count ?? 0) - poolRemoved);
+    wbt.current_block_dryland_count = Math.max(0, (wbt.current_block_dryland_count ?? 0) - drylandRemoved);
+  }
+  // If pending_adjustments referenced a removed session, repoint it to the
+  // most-recent remaining session (or null).
+  const pa = cat.pending_adjustments;
+  if (pa && removeIds.has(pa.set_on_session_id)) {
+    pa.set_on_session_id = cat.sessions[0]?.id ?? null;
+  }
+}
+
 export function migrateCatalogue(catalogue) {
   if (catalogue == null || typeof catalogue !== 'object') return catalogue;
   const cat = structuredClone(catalogue);
@@ -335,6 +394,10 @@ export function migrateCatalogue(catalogue) {
   if (!cat.migrations_applied.includes(TRACK_50_100_KEY)) {
     backfill50m100m(cat);
     cat.migrations_applied.push(TRACK_50_100_KEY);
+  }
+  if (!cat.migrations_applied.includes(DEDUPE_KEY)) {
+    dedupeIdenticalSessions(cat);
+    cat.migrations_applied.push(DEDUPE_KEY);
   }
 
   return cat;

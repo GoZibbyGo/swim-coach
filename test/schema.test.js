@@ -205,6 +205,71 @@ test('50m/100m backfill is improve-only and runs once', () => {
   assert.equal(again.migrations_applied.filter(k => k === 'track_50m_100m_v1').length, 1);
 });
 
+test('migrateCatalogue dedupes identical-breakdown sessions and rolls back block counters', () => {
+  const breakdown = [
+    { n: 1, is_drill: false, time_s: 100, splits_s: [24, 25, 25, 26] },
+    { n: 2, is_drill: false, time_s: 50, splits_s: [22, 28] },
+  ];
+  const c = {
+    rolling_bests: {},
+    training_phase: { current: 1 },
+    weekly_block_tracking: {
+      current_block_number: 3,
+      current_block_pool_count: 1,
+      current_block_dryland_count: 0,
+      last_completed_block: 2,
+    },
+    pending_adjustments: { set_on_session_id: 21 },
+    sessions: [
+      // Catalogue is most-recent-first; the duplicate is the newer id 21.
+      { id: 21, date: '2026-05-28', type: 'pool', subtype: 'mixed', distance_m: 150, source: 'external', breakdown },
+      { id: 20, date: '2026-05-28', type: 'pool', subtype: 'technique', distance_m: 150, source: 'app_generated', breakdown },
+      { id: 19, date: '2026-05-25', type: 'pool', subtype: 'sprint', distance_m: 1400, breakdown: [{ n: 1, is_drill: false, time_s: 99, splits_s: [25, 25, 25, 24] }] },
+    ],
+  };
+  const out = migrateCatalogue(c);
+  // The earliest occurrence (id 20, with the plan) is kept; the later id 21 is removed.
+  assert.equal(out.sessions.length, 2);
+  assert.ok(out.sessions.find(s => s.id === 20));
+  assert.ok(!out.sessions.find(s => s.id === 21));
+  // Block 3 pool count rolls back: 1 → 0 (you're now correctly on session 1 of block 3).
+  assert.equal(out.weekly_block_tracking.current_block_pool_count, 0);
+  assert.equal(out.weekly_block_tracking.current_block_dryland_count, 0);
+  // pending_adjustments repointed off the removed id.
+  assert.notEqual(out.pending_adjustments.set_on_session_id, 21);
+  assert.ok(out.migrations_applied.includes('dedupe_identical_sessions_v1'));
+});
+
+test('dedupe leaves real non-duplicate sessions alone', () => {
+  const c = {
+    rolling_bests: {}, training_phase: { current: 1 }, weekly_block_tracking: {},
+    sessions: [
+      { id: 2, date: '2026-05-28', type: 'pool', subtype: 'sprint', breakdown: [{ n: 1, is_drill: false, time_s: 99, splits_s: [25, 25, 25, 24] }] },
+      // Same date, same type, but DIFFERENT breakdown — a legitimate second session.
+      { id: 1, date: '2026-05-28', type: 'pool', subtype: 'technique', breakdown: [{ n: 1, is_drill: false, time_s: 100, splits_s: [25, 26, 25, 24] }] },
+    ],
+  };
+  const out = migrateCatalogue(c);
+  assert.equal(out.sessions.length, 2); // both kept
+});
+
+test('dedupe runs once and is idempotent', () => {
+  const breakdown = [{ n: 1, is_drill: false, time_s: 34.3, splits_s: [19.3, 15] }];
+  const c = {
+    rolling_bests: {}, training_phase: { current: 1 },
+    weekly_block_tracking: { current_block_pool_count: 1, current_block_dryland_count: 0 },
+    sessions: [
+      { id: 21, date: '2026-05-28', type: 'pool', subtype: 'mixed', breakdown },
+      { id: 20, date: '2026-05-28', type: 'pool', subtype: 'technique', breakdown },
+    ],
+  };
+  const once = migrateCatalogue(c);
+  const twice = migrateCatalogue(once);
+  assert.equal(twice.sessions.length, 1);
+  assert.equal(twice.weekly_block_tracking.current_block_pool_count, 0);
+  assert.equal(twice.migrations_applied.filter(k => k === 'dedupe_identical_sessions_v1').length, 1);
+});
+
 test('validateCatalogue catches duplicate session ids', () => {
   const cat = {
     athlete: {}, training_phase: {}, rolling_bests: {}, weekly_block_tracking: {},

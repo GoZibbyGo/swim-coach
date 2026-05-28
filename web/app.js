@@ -912,6 +912,26 @@ async function submitLog() {
       if (notes.length) input.notes = notes.join(' | ');
     }
 
+    // Duplicate guard: if an existing session matches this one (same date +
+    // type, and for a pool session a near-identical total distance), warn
+    // before logging a second copy. This catches the "logged the planned
+    // session, then logged the same CSV again as External" pattern.
+    {
+      const today = new Date().toISOString().slice(0, 10);
+      const candDate = input.date ?? today;
+      const candDist = input.parsed?.summary?.total_distance_m ?? null;
+      const dup = (catalogue.sessions ?? []).find(s =>
+        s?.date === candDate && s?.type === input.type &&
+        (input.type !== 'pool' ||
+          (candDist != null && s.distance_m != null && Math.abs(s.distance_m - candDist) <= 25)));
+      if (dup) {
+        const distBit = dup.distance_m != null ? `, ${dup.distance_m} m` : '';
+        if (!confirm(`A ${input.type} session is already logged for ${candDate} (id ${dup.id}${distBit}). Log this as a separate session anyway?`)) {
+          btn.disabled = false;
+          return;
+        }
+      }
+    }
     const r = logSession(catalogue, input);
     saveCatalogue(r.catalogue);
     if (isPlanned) clearPending(); // unblocks generating the next session
