@@ -411,6 +411,23 @@ async function screenToday() {
   const series = trendSeries(catalogue);
   let pp; try { pp = phaseProgress(catalogue); } catch { pp = null; }
 
+  // Sync the pending session's display label to the LIVE block counter. The
+  // renderer reads `block_number` / `session_in_block` straight off the plan
+  // (renderer.js:51), and those are baked in at generation time — so if the
+  // counter changes after generation (e.g. the dedupe migration rolled it back),
+  // the card title would otherwise stay stale. Re-derive from
+  // weekly_block_tracking and persist when it actually changed.
+  if (pending?.session) {
+    const wbt = catalogue.weekly_block_tracking ?? {};
+    const liveBlock = wbt.current_block_number ?? pending.session.block_number;
+    const liveSiB = (wbt.current_block_pool_count ?? 0) + (wbt.current_block_dryland_count ?? 0) + 1;
+    if (pending.session.session_in_block !== liveSiB || pending.session.block_number !== liveBlock) {
+      pending.session.session_in_block = liveSiB;
+      pending.session.block_number = liveBlock;
+      saveCatalogue(catalogue); // marks dirty → debounced auto-push to GitHub
+    }
+  }
+
   const hello = `<div class="dash-hello">${esc(niceDay())}${pp ? ` · Phase ${pp.phase}` : ''}</div>
     <div class="dash-h1">${pending ? 'Your session is ready 🏊' : 'Ready to train 🏊'}</div>`;
 
