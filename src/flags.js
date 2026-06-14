@@ -132,6 +132,17 @@ export function detectRecords(parsed, rollingBests = {}) {
     }
   }
 
+  // ── Best threshold pace (fastest sustained same-distance set, ≥3 reps, avg rest ≤60s) ──
+  if (s.best_threshold_pace_per_100m != null) {
+    const prevStr = rollingBests.best_threshold_pace_per_100m;
+    const cur = paceToSeconds(s.best_threshold_pace_per_100m);
+    const prev = prevStr ? paceToSeconds(prevStr) : null;
+    if (cur != null && (prev == null || cur < prev)) {
+      flags.push(`NEW THRESHOLD PACE BEST: ${s.best_threshold_pace_per_100m}/100m${prevStr ? ` (previous ${prevStr})` : ''}.`);
+      newRecords.best_threshold_pace_per_100m = s.best_threshold_pace_per_100m;
+    }
+  }
+
   // ── Avg pace per 100m ──
   if (s.avg_pace_per_100m != null) {
     const prevStr = rollingBests.best_avg_pace_per_100m;

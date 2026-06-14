@@ -104,6 +104,7 @@ function buildPoolMetrics(parsed, extra) {
     best_50m_split_context: s.best_50m_context ?? null,
     best_100m_split_s: s.best_100m_split_s ?? null,
     best_100m_split_context: s.best_100m_context ?? null,
+    best_threshold_pace_per_100m: s.best_threshold_pace_per_100m ?? null,
     avg_hr: s.avg_hr ?? null,
     max_hr: s.max_hr ?? null,
     avg_strokes_per_length: s.avg_strokes_per_length ?? null,
@@ -124,6 +125,7 @@ function applyNewRecords(rollingBests, records, date, sessionId) {
     best_avg_swolf: ['best_avg_swolf_date', 'best_avg_swolf_session_id'],
     best_sprint_swolf: ['best_sprint_swolf_date', 'best_sprint_swolf_session_id'],
     best_avg_pace_per_100m: ['best_avg_pace_date', 'best_avg_pace_session_id'],
+    best_threshold_pace_per_100m: ['best_threshold_pace_date', 'best_threshold_pace_session_id'],
   };
   for (const [key, value] of Object.entries(records ?? {})) {
     rb[key] = value;

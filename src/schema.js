@@ -311,6 +311,88 @@ function backfill50m100m(cat) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// One-time backfill: best threshold pace per 100m.
+//
+// `best_threshold_pace_per_100m` was a static seed ('1:36') with no
+// detection path — never updated from any logged session. Now the parser
+// computes it, and this pass scans each pool session's stored breakdown for
+// the same "sustained set" pattern (≥3 consecutive same-distance non-drill
+// multi-length reps with avg inter-rep rest ≤60s) and seeds the rolling best
+// from history. Improve-only.
+// ──────────────────────────────────────────────────────────────────────────
+
+const BACKFILL_THRESHOLD_KEY = 'backfill_threshold_pace_v1';
+
+function paceStrToSec(p) {
+  if (p == null) return null;
+  const m = String(p).match(/(\d+):(\d+)/);
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+function paceSecToStr(sec) {
+  if (sec == null || !Number.isFinite(sec) || sec < 0) return null;
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec - m * 60);
+  if (s === 60) return `${m + 1}:00`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+// Walk a session's breakdown and return the fastest sustained-set pace
+// (seconds per 100m) in that session, or null. Same rules as the parser:
+// ≥3 consecutive same-distance non-drill multi-length reps, avg inter-rep
+// rest ≤60s.
+function bestSustainedPaceSecFromBreakdown(session) {
+  const bd = session?.breakdown;
+  if (!Array.isArray(bd) || bd.length === 0) return null;
+  let best = null;
+  let runDist = null, runTimes = [], runRests = [];
+  const flushRun = () => {
+    if (runTimes.length >= 3 && runDist != null) {
+      const inter = runRests.slice(0, runTimes.length - 1).filter(r => r != null && Number.isFinite(r));
+      const avgRest = inter.length ? inter.reduce((a, b) => a + b, 0) / inter.length : 0;
+      if (avgRest <= 60) {
+        const totalT = runTimes.reduce((a, b) => a + b, 0);
+        const totalD = runDist * runTimes.length;
+        const paceSec = (totalT / totalD) * 100;
+        if (best == null || paceSec < best) best = paceSec;
+      }
+    }
+    runDist = null; runTimes = []; runRests = [];
+  };
+  for (const it of bd) {
+    const splits = Array.isArray(it?.splits_s) ? it.splits_s : [];
+    const qualifies = !it?.is_drill &&
+      splits.length >= 2 &&
+      it.time_s != null && Number.isFinite(it.time_s) && it.time_s > 0 &&
+      it.distance_m != null && it.distance_m > 0;
+    if (!qualifies) { flushRun(); continue; }
+    if (runDist == null) { runDist = it.distance_m; runTimes = [it.time_s]; runRests = [it.rest_after_s ?? null]; }
+    else if (it.distance_m === runDist) { runTimes.push(it.time_s); runRests.push(it.rest_after_s ?? null); }
+    else { flushRun(); runDist = it.distance_m; runTimes = [it.time_s]; runRests = [it.rest_after_s ?? null]; }
+  }
+  flushRun();
+  return best;
+}
+
+function backfillThresholdPace(cat) {
+  const sessions = Array.isArray(cat.sessions) ? cat.sessions : [];
+  const rb = cat.rolling_bests;
+  let bestSec = null, bestDate = null, bestId = null;
+  for (const s of sessions) {
+    if (s?.type !== 'pool') continue;
+    const sec = bestSustainedPaceSecFromBreakdown(s);
+    if (sec != null && (bestSec == null || sec < bestSec)) { bestSec = sec; bestDate = s.date; bestId = s.id; }
+  }
+  if (bestSec == null) return;
+  const newStr = paceSecToStr(bestSec);
+  const prevSec = paceStrToSec(rb.best_threshold_pace_per_100m);
+  if (prevSec == null || bestSec < prevSec) {
+    rb.best_threshold_pace_per_100m = newStr;
+    rb.best_threshold_pace_date = bestDate;
+    rb.best_threshold_pace_session_id = bestId;
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // One-time cleanup: remove identical-breakdown duplicate pool sessions.
 //
 // If a session is logged twice (e.g. logged once against a pending plan, then
@@ -394,6 +476,10 @@ export function migrateCatalogue(catalogue) {
   if (!cat.migrations_applied.includes(TRACK_50_100_KEY)) {
     backfill50m100m(cat);
     cat.migrations_applied.push(TRACK_50_100_KEY);
+  }
+  if (!cat.migrations_applied.includes(BACKFILL_THRESHOLD_KEY)) {
+    backfillThresholdPace(cat);
+    cat.migrations_applied.push(BACKFILL_THRESHOLD_KEY);
   }
   if (!cat.migrations_applied.includes(DEDUPE_KEY)) {
     dedupeIdenticalSessions(cat);

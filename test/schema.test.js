@@ -205,6 +205,53 @@ test('50m/100m backfill is improve-only and runs once', () => {
   assert.equal(again.migrations_applied.filter(k => k === 'track_50m_100m_v1').length, 1);
 });
 
+test('migrateCatalogue backfills best_threshold_pace_per_100m from a sustained set (improve-only)', () => {
+  const c = {
+    rolling_bests: { best_threshold_pace_per_100m: '1:36' },
+    training_phase: { current: 1 }, weekly_block_tracking: {},
+    sessions: [
+      {
+        id: 40, date: '2026-06-01', type: 'pool', subtype: 'threshold',
+        breakdown: [
+          // 4×100m sustained at 1:32 (92s each, 33s rest) → SHOULD WIN
+          { n: 4, is_drill: false, distance_m: 100, time_s: 92.0, rest_after_s: 33, splits_s: [23, 23, 23, 23] },
+          { n: 5, is_drill: false, distance_m: 100, time_s: 92.0, rest_after_s: 33, splits_s: [23, 23, 23, 23] },
+          { n: 6, is_drill: false, distance_m: 100, time_s: 92.0, rest_after_s: 33, splits_s: [23, 23, 23, 23] },
+          { n: 7, is_drill: false, distance_m: 100, time_s: 92.0, rest_after_s: 33, splits_s: [23, 23, 23, 23] },
+          // 4×50m faster pace but 3-min rest → race-pace, must NOT win
+          { n: 8, is_drill: false, distance_m: 50, time_s: 34.0, rest_after_s: 180, splits_s: [18, 16] },
+          { n: 9, is_drill: false, distance_m: 50, time_s: 34.0, rest_after_s: 180, splits_s: [18, 16] },
+          { n: 10, is_drill: false, distance_m: 50, time_s: 34.0, rest_after_s: 180, splits_s: [18, 16] },
+        ],
+      },
+    ],
+  };
+  const out = migrateCatalogue(c);
+  assert.equal(out.rolling_bests.best_threshold_pace_per_100m, '1:32');
+  assert.equal(out.rolling_bests.best_threshold_pace_date, '2026-06-01');
+  assert.equal(out.rolling_bests.best_threshold_pace_session_id, 40);
+  assert.ok(out.migrations_applied.includes('backfill_threshold_pace_v1'));
+});
+
+test('threshold backfill is improve-only and runs once', () => {
+  const c = {
+    rolling_bests: { best_threshold_pace_per_100m: '1:25' }, // already faster than anything below
+    training_phase: { current: 1 }, weekly_block_tracking: {},
+    sessions: [{
+      id: 41, date: '2026-06-02', type: 'pool', subtype: 'threshold',
+      breakdown: [
+        { n: 1, is_drill: false, distance_m: 100, time_s: 92.0, rest_after_s: 33, splits_s: [23, 23, 23, 23] },
+        { n: 2, is_drill: false, distance_m: 100, time_s: 92.0, rest_after_s: 33, splits_s: [23, 23, 23, 23] },
+        { n: 3, is_drill: false, distance_m: 100, time_s: 92.0, rest_after_s: 33, splits_s: [23, 23, 23, 23] },
+      ],
+    }],
+  };
+  const out = migrateCatalogue(c);
+  assert.equal(out.rolling_bests.best_threshold_pace_per_100m, '1:25'); // 1:32 does NOT raise a better 1:25
+  const again = migrateCatalogue(out);
+  assert.equal(again.migrations_applied.filter(k => k === 'backfill_threshold_pace_v1').length, 1);
+});
+
 test('migrateCatalogue dedupes identical-breakdown sessions and rolls back block counters', () => {
   const breakdown = [
     { n: 1, is_drill: false, time_s: 100, splits_s: [24, 25, 25, 26] },

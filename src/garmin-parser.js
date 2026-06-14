@@ -394,6 +394,7 @@ function emptySummary() {
     best_50m_context: null,
     best_100m_split_s: null,
     best_100m_context: null,
+    best_threshold_pace_per_100m: null,
   };
 }
 
@@ -416,6 +417,56 @@ function round2(n) {
 // 50m (2 lengths) and 100m (4 lengths) bests. Counts ANY context — fresh or
 // fatigued — because these are the athlete's fastest *actual* reps at that
 // distance (per Julian's choice), not an estimate.
+// Best sustained pace per 100m — the fastest "threshold-shaped" set in the
+// session. Walks consecutive multi-length (≥50m) freestyle non-drill intervals,
+// groups them by equal distance, and considers a group qualifying when it has
+// ≥3 reps AND the average inter-rep rest is ≤60s. Pace = total time / total
+// distance × 100, formatted "M:SS". Returns the FASTEST qualifying group's
+// pace across the session (so a single fast 4×100m main set wins over slower
+// warm-up / cool-down sets of the same shape). Race-pace 50s with long rest
+// are correctly excluded by the rest filter.
+function bestSustainedPaceStr(intervals, poolLengthM) {
+  let best = null; // { paceSec, dist, time }
+  let runDist = null;
+  let runTimes = [];
+  let runRests = []; // inter-rep rests (rest_after of all but the last rep)
+  const flushRun = () => {
+    if (runTimes.length >= 3 && runDist != null) {
+      const interRests = runRests.slice(0, runTimes.length - 1).filter(r => r != null && Number.isFinite(r));
+      const avgRest = interRests.length ? interRests.reduce((a, b) => a + b, 0) / interRests.length : 0;
+      if (avgRest <= 60) {
+        const totalT = runTimes.reduce((a, b) => a + b, 0);
+        const totalD = runDist * runTimes.length;
+        const paceSec = (totalT / totalD) * 100;
+        if (best == null || paceSec < best.paceSec) best = { paceSec, dist: totalD, time: totalT };
+      }
+    }
+    runDist = null; runTimes = []; runRests = [];
+  };
+  for (const it of intervals) {
+    const lens = it?.lengths ?? [];
+    const qualifies =
+      !it.is_rest &&
+      String(it.stroke ?? '').trim().toLowerCase() !== 'drill' &&
+      lens.length >= 2 &&
+      lens.every(l => l.is_freestyle && !l.is_drill) &&
+      lens.every(l => l.distance_m == null || l.distance_m === poolLengthM) &&
+      it.time_s != null && it.time_s > 0 &&
+      it.distance_m != null && it.distance_m > 0;
+    if (!qualifies) { flushRun(); continue; }
+    if (runDist == null) {
+      runDist = it.distance_m; runTimes = [it.time_s]; runRests = [it.rest_after_s ?? null];
+    } else if (it.distance_m === runDist) {
+      runTimes.push(it.time_s); runRests.push(it.rest_after_s ?? null);
+    } else {
+      flushRun();
+      runDist = it.distance_m; runTimes = [it.time_s]; runRests = [it.rest_after_s ?? null];
+    }
+  }
+  flushRun();
+  return best == null ? null : formatPacePer100m(best.dist, best.time);
+}
+
 function bestFreestyleRep(intervals, lengthCount, poolLengthM) {
   let best = null;
   for (const it of intervals) {
@@ -486,6 +537,9 @@ function computeSummary(intervals, lengths, poolLengthM) {
   const best50 = bestFreestyleRep(intervals, 2, poolLengthM);
   const best100 = bestFreestyleRep(intervals, 4, poolLengthM);
 
+  // Best sustained pace — the fastest threshold-shaped set in the session.
+  const bestThresh = bestSustainedPaceStr(intervals, poolLengthM);
+
   return {
     total_distance_m: totalDistance || null,
     total_time_s: totalTime || null,
@@ -506,5 +560,6 @@ function computeSummary(intervals, lengths, poolLengthM) {
     best_50m_context: best50 ? `INT ${best50.interval}` : null,
     best_100m_split_s: best100 ? best100.t : null,
     best_100m_context: best100 ? `INT ${best100.interval}` : null,
+    best_threshold_pace_per_100m: bestThresh,
   };
 }

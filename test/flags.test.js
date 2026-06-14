@@ -70,6 +70,22 @@ test('no 50m record when the rep is slower than the rolling best', () => {
   assert.equal(r.new_records.best_50m_equiv_s, undefined);
 });
 
+test('detects new threshold pace best', () => {
+  const p = parsed({ summary: { best_threshold_pace_per_100m: '1:32' } });
+  const cat = { rolling_bests: { best_threshold_pace_per_100m: '1:36' } };
+  const r = detectFlags(p, cat);
+  assert.ok(r.flags.some(f => /NEW THRESHOLD PACE BEST: 1:32\/100m/.test(f)));
+  assert.equal(r.new_records.best_threshold_pace_per_100m, '1:32');
+});
+
+test('no threshold pace record when the session is slower than the rolling best', () => {
+  const p = parsed({ summary: { best_threshold_pace_per_100m: '1:41' } });
+  const cat = { rolling_bests: { best_threshold_pace_per_100m: '1:36' } };
+  const r = detectFlags(p, cat);
+  assert.ok(!r.flags.some(f => /NEW THRESHOLD PACE BEST/.test(f)));
+  assert.equal(r.new_records.best_threshold_pace_per_100m, undefined);
+});
+
 test('detects new 100m best', () => {
   const p = parsed({ summary: { best_100m_split_s: 89.5, best_100m_context: 'INT 5' } });
   const cat = { rolling_bests: { best_100m_split_s: 92.0 } };
