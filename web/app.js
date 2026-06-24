@@ -802,16 +802,44 @@ function renderExtDryResults() {
     : '';
 }
 
+// True for HOLD-style exercises (time-based). The previous heuristic used
+// `/s\b/` which matched any plural ending in 's' — so "10-12 reps" was
+// classified as a hold (the 's' in 'reps'). Now we only match:
+// (a) "hold" / "holding" in the exercise NAME (e.g. "Hollow-body hold",
+//     "Wall-sit holding dumbbells"), or
+// (b) a digit IMMEDIATELY followed by 's' in the prescription (e.g. "30s",
+//     "20-30s"), or
+// (c) the word "sec"/"second(s)" in the prescription.
+function isHoldExercise(e) {
+  const name = String(e?.name ?? '');
+  const presc = String(e?.prescription ?? '');
+  return /\bhold(?:ing)?\b/i.test(name) ||
+         /\d+\s*-?\s*\d*\s*s\b/i.test(presc) ||
+         /\bsec(?:ond)?s?\b/i.test(presc);
+}
+
+// True for exercises that take an external load (dumbbells, kettlebells,
+// barbells, goblet variants, "weighted X"). Surfaces a kg input per set.
+function isWeightedExercise(e) {
+  const name = String(e?.name ?? '').toLowerCase();
+  return ['dumbbell', 'goblet', 'weighted', 'barbell', 'kettlebell'].some(kw => name.includes(kw));
+}
+
 // Per-exercise actual-result boxes for an external dryland plan (flat list).
 function exerciseResultBoxes(exercises) {
   return exercises.map((e, ei) => {
     const sets = e.sets || 1;
-    const isHold = /s\b|sec|hold/i.test(e.prescription || '') || /hold/i.test(e.name || '');
-    const unit = isHold ? 's' : 'reps';
+    const unit = isHoldExercise(e) ? 's' : 'reps';
+    const weighted = isWeightedExercise(e);
     const planned = e.prescription || (e.reps_per_set != null ? `${e.reps_per_set} reps` : '');
-    const boxes = Array.from({ length: sets }, (_, s) =>
+    const repBoxes = Array.from({ length: sets }, (_, s) =>
       `<input type="text" class="exbox" data-ei="${ei}" data-unit="${unit}" inputmode="numeric" placeholder="S${s + 1}" />`).join('');
-    return `<label>${esc(e.name)} <span class="muted">(planned ${sets}×${esc(planned)} — actual ${unit})</span></label><div class="row setrow">${boxes}</div>`;
+    const weightBoxes = weighted ? Array.from({ length: sets }, (_, s) =>
+      `<input type="text" class="exweight" data-ei="${ei}" inputmode="decimal" placeholder="S${s + 1} kg" />`).join('') : '';
+    const weightRow = weighted ? `<div class="row setrow"><span class="muted" style="min-width:70px">Weight kg</span>${weightBoxes}</div>` : '';
+    const repLabelPrefix = weighted ? '<span class="muted" style="min-width:70px">Actual</span>' : '';
+    return `<label>${esc(e.name)} <span class="muted">(planned ${sets}×${esc(planned)} — actual ${unit}${weighted ? ' + weight' : ''})</span></label>` +
+           `<div class="row setrow">${repLabelPrefix}${repBoxes}</div>${weightRow}`;
   }).join('');
 }
 
@@ -822,6 +850,11 @@ function collectExerciseResults(exercises) {
     const unit = boxes[0]?.dataset.unit;
     const ex = { name: e.name, sets: vals.length || (e.sets || 0), planned: e.prescription || e.reps_per_set };
     if (unit === 's') ex.duration_s_per_set = vals; else ex.reps_per_set = vals;
+    if (isWeightedExercise(e)) {
+      const wBoxes = [...document.querySelectorAll(`.exweight[data-ei="${ei}"]`)];
+      const wVals = wBoxes.map(x => x.value.trim()).filter(v => v !== '').map(Number).filter(n => !Number.isNaN(n));
+      if (wVals.length) ex.weight_kg_per_set = wVals;
+    }
     return ex;
   });
 }
@@ -832,12 +865,17 @@ function buildDrylandPlannedForm(session) {
     const note = b.note ? `<p class="muted">${esc(b.note)}</p>` : '';
     const exs = (b.exercises || []).map((e, ei) => {
       const sets = e.sets || 1;
-      const isHold = /s\b|sec|hold/i.test(e.prescription || '') || /hold/i.test(e.name || '');
-      const unit = isHold ? 's' : 'reps';
+      const unit = isHoldExercise(e) ? 's' : 'reps';
+      const weighted = isWeightedExercise(e);
       const presc = e.prescription || (e.reps_per_set ? `${e.reps_per_set} reps` : '');
-      const boxes = Array.from({ length: sets }, (_, s) =>
+      const repBoxes = Array.from({ length: sets }, (_, s) =>
         `<input type="text" class="setbox" data-bi="${bi}" data-ei="${ei}" data-unit="${unit}" inputmode="numeric" placeholder="S${s + 1}" />`).join('');
-      return `<label>${esc(e.name)} <span class="muted">(${sets}×${esc(presc)}, ${unit})</span></label><div class="row setrow">${boxes}</div>`;
+      const weightBoxes = weighted ? Array.from({ length: sets }, (_, s) =>
+        `<input type="text" class="setweight" data-bi="${bi}" data-ei="${ei}" inputmode="decimal" placeholder="S${s + 1} kg" />`).join('') : '';
+      const weightRow = weighted ? `<div class="row setrow"><span class="muted" style="min-width:70px">Weight kg</span>${weightBoxes}</div>` : '';
+      const repLabelPrefix = weighted ? '<span class="muted" style="min-width:70px">Actual</span>' : '';
+      return `<label>${esc(e.name)} <span class="muted">(${sets}×${esc(presc)}, ${unit}${weighted ? ' + weight' : ''})</span></label>` +
+             `<div class="row setrow">${repLabelPrefix}${repBoxes}</div>${weightRow}`;
     }).join('');
     return `<div class="card"><strong>${esc(b.name)}</strong>${note}${exs}</div>`;
   }).join('');
@@ -852,6 +890,11 @@ function collectDrylandPlannedForm(session) {
       const unit = boxes[0]?.dataset.unit;
       const ex = { name: e.name, sets: vals.length || (e.sets || 0), planned: e.prescription || e.reps_per_set };
       if (unit === 's') ex.duration_s_per_set = vals; else ex.reps_per_set = vals;
+      if (isWeightedExercise(e)) {
+        const wBoxes = [...document.querySelectorAll(`.setweight[data-bi="${bi}"][data-ei="${ei}"]`)];
+        const wVals = wBoxes.map(x => x.value.trim()).filter(v => v !== '').map(Number).filter(n => !Number.isNaN(n));
+        if (wVals.length) ex.weight_kg_per_set = wVals;
+      }
       exercises.push(ex);
     });
   });
