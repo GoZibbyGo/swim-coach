@@ -140,6 +140,37 @@ test('push_core_legs dryland subtype selects the press/legs/core family + valida
   assert.equal(r.valid, true, `errors: ${JSON.stringify(r.errors)}`);
 });
 
+test('dryland fallback selects weights template when weights is ticked', () => {
+  const decision = { type: 'dryland', subtype: 'pulling_strength', block_number: 3, session_in_block: 2, active_flags: [] };
+  const { session, template_id } = buildFallbackSession(decision, catalogue(), { equipmentAvailable: ['weights'], date: '2026-05-30' });
+  assert.equal(template_id, 'dryland_weights');
+  // Template must actually include dumbbell exercises (not just be a relabelled bars template).
+  const exNames = session.blocks.flatMap(b => b.exercises.map(e => e.name.toLowerCase()));
+  assert.ok(exNames.some(n => n.includes('dumbbell')), `expected dumbbell exercises, got: ${JSON.stringify(exNames)}`);
+  const r = validateGeneratedSession(session);
+  assert.equal(r.valid, true, `errors: ${JSON.stringify(r.errors)}`);
+});
+
+test('weights ticked alongside bars: weights wins (the user explicitly asked for loaded work)', () => {
+  const decision = { type: 'dryland', subtype: 'pulling_strength', block_number: 3, session_in_block: 2, active_flags: [] };
+  const { template_id } = buildFallbackSession(decision, catalogue(), { equipmentAvailable: ['bars', 'weights'] });
+  assert.equal(template_id, 'dryland_weights');
+});
+
+test('rings beats weights when both ticked (rings is the most specialised stimulus)', () => {
+  const decision = { type: 'dryland', subtype: 'pulling_strength', block_number: 3, session_in_block: 2, active_flags: [] };
+  const { template_id } = buildFallbackSession(decision, catalogue(), { equipmentAvailable: ['rings', 'weights', 'bars'] });
+  assert.equal(template_id, 'dryland_rings');
+});
+
+test('push_core_legs + weights selects the loaded push family template', () => {
+  const decision = { type: 'dryland', subtype: 'push_core_legs', block_number: 3, session_in_block: 2, active_flags: [] };
+  const { session, template_id } = buildFallbackSession(decision, catalogue(), { equipmentAvailable: ['weights'] });
+  assert.equal(template_id, 'dryland_push_weights');
+  const exNames = session.blocks.flatMap(b => b.exercises.map(e => e.name.toLowerCase()));
+  assert.ok(exNames.some(n => n.includes('dumbbell')));
+});
+
 test('the two dryland subtypes produce different plans (block-to-block variety)', () => {
   const base = { type: 'dryland', block_number: 2, session_in_block: 2, active_flags: [] };
   const pull = buildFallbackSession({ ...base, subtype: 'pulling_strength' }, catalogue(), { equipmentAvailable: [] }).template_id;
@@ -157,7 +188,8 @@ test('equipmentAvailable picks the dryland template and overrides the catalogue'
   assert.equal(pick(['rings']), 'dryland_rings');
   assert.equal(pick(['bars']), 'dryland_bars');
   assert.equal(pick(['rings', 'bars']), 'dryland_rings');   // rings preferred
-  assert.equal(pick(['weights']), 'dryland_bodyweight');     // no dumbbell template → safe bodyweight
+  assert.equal(pick(['weights']), 'dryland_weights');        // dedicated dumbbell template
+  assert.equal(pick(['weights', 'bars']), 'dryland_weights'); // weights beats bars when both ticked
   assert.equal(pick([]), 'dryland_bodyweight');              // nothing available
 });
 

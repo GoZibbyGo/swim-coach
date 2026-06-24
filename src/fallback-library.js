@@ -191,6 +191,30 @@ const DRYLAND_TEMPLATES = {
       ] },
     ],
   },
+  weights: {
+    id: 'dryland_weights',
+    blocks: [
+      { name: 'Block A — Core & Rotation', exercises: [
+        { name: 'Weighted Russian twists (dumbbell)', sets: 3, prescription: '15 each side', rest_s: 45, rationale: 'anti-rotation under load' },
+        { name: 'Hollow-body hold', sets: 3, prescription: '20-30s', rest_s: 45, rationale: 'streamline trunk tension' },
+        { name: 'V-ups', sets: 3, prescription: '10-15 reps', rest_s: 45, rationale: 'dynamic trunk flexion' },
+      ] },
+      { name: 'Block B — Pulling Strength', exercises: [
+        { name: 'Dumbbell bent-over row', sets: 4, prescription: '10-12 reps', rest_s: 60, rationale: 'horizontal pull / catch strength under load' },
+        { name: 'Dumbbell single-arm row', sets: 3, prescription: '10 each side', rest_s: 60, rationale: 'unilateral pull / scapular control' },
+        { name: 'Dumbbell lat pullover', sets: 3, prescription: '10 reps (light, controlled)', rest_s: 60, rationale: 'lat engagement / overhead reach — watch shoulders' },
+      ] },
+      { name: 'Block C — Shoulder Stability', exercises: [
+        { name: 'Dumbbell external rotation (lying)', sets: 3, prescription: '12-15 each, light', rest_s: 45, rationale: 'rotator cuff under load' },
+        { name: 'Prone Y-T-W raises (light dumbbells)', sets: 3, prescription: '10 each', rest_s: 45, rationale: 'lower-trap / cuff' },
+      ] },
+      { name: 'Block D — Controlled Leg / Hip-Flexor', exercises: [
+        { name: 'Goblet squat (dumbbell at chest)', sets: 3, prescription: '8-10 reps', rest_s: 60, rationale: 'loaded quad/hip pattern' },
+        { name: 'Dumbbell Romanian deadlift', sets: 3, prescription: '10 reps', rest_s: 60, rationale: 'posterior chain' },
+        { name: 'Slow standing hip-flexor drive', sets: 3, prescription: '10 each', rest_s: 45, rationale: 'hip-flexor endurance (deficit)' },
+      ] },
+    ],
+  },
   bodyweight: {
     id: 'dryland_bodyweight',
     blocks: [
@@ -265,6 +289,29 @@ const DRYLAND_TEMPLATES_PUSH = {
       { name: 'Block D — Posterior Balance', exercises: [
         { name: 'Ring rows', sets: 3, prescription: '10-12 reps', rest_s: 60, rationale: 'balance the pressing volume' },
         { name: 'Prone Y-T-W raises', sets: 3, prescription: '10 each', rest_s: 45, rationale: 'lower-trap / cuff health' },
+      ] },
+    ],
+  },
+  weights: {
+    id: 'dryland_push_weights',
+    blocks: [
+      { name: 'Block A — Core & Anti-Rotation', exercises: [
+        { name: 'Side plank with dumbbell raise', sets: 3, prescription: '10 each side', rest_s: 40, rationale: 'lateral trunk + loaded shoulder' },
+        { name: 'Weighted Russian twists (dumbbell)', sets: 3, prescription: '15 each side', rest_s: 40, rationale: 'anti-rotation under load' },
+        { name: 'Hollow rocks', sets: 3, prescription: '12 reps', rest_s: 40, rationale: 'streamline tension under motion' },
+      ] },
+      { name: 'Block B — Pressing Strength', exercises: [
+        { name: 'Dumbbell floor press', sets: 4, prescription: '8-10 reps', rest_s: 75, rationale: 'horizontal press / pec + shoulder drive' },
+        { name: 'Dumbbell shoulder press', sets: 3, prescription: '8-10 reps', rest_s: 60, rationale: 'overhead press / breakout strength' },
+      ] },
+      { name: 'Block C — Legs / Hips (controlled)', exercises: [
+        { name: 'Goblet split squat', sets: 3, prescription: '8 each', rest_s: 60, rationale: 'unilateral quad control under load' },
+        { name: 'Wall-sit holding dumbbells', sets: 3, prescription: '30s', rest_s: 45, rationale: 'quad isometric, loaded' },
+        { name: 'Single-leg dumbbell calf raise', sets: 3, prescription: '12 each', rest_s: 30, rationale: 'ankle drive for push-off' },
+      ] },
+      { name: 'Block D — Posterior Balance', exercises: [
+        { name: 'Dumbbell bent-over row', sets: 3, prescription: '10-12 reps', rest_s: 60, rationale: 'balance the pressing volume' },
+        { name: 'Dumbbell reverse fly', sets: 3, prescription: '12 reps', rest_s: 45, rationale: 'rear delt / cuff' },
       ] },
     ],
   },
@@ -475,11 +522,13 @@ export function buildFallbackSession(decision, catalogue, opts = {}) {
 
 function resolveEquipment(catalogue, blockNumber, optEquipment, available) {
   // A pre-session availability list (from the Today checkboxes) wins when given.
-  // Offline fallback stays conservative: weights-only / nothing → bodyweight
-  // (the LLM path uses weights properly; the template library doesn't have a
-  // dumbbell-only session).
+  // Priority: rings (most specialised) → weights (loaded dumbbell work) → bars
+  // → bodyweight. When weights+bars are both ticked the weights template wins
+  // because the user explicitly asked for weighted work; if they want pure bar
+  // work for a session, untick weights for that generation.
   if (Array.isArray(available)) {
     if (available.includes('rings')) return 'rings';
+    if (available.includes('weights')) return 'weights';
     if (available.includes('bars')) return 'bars';
     return 'bodyweight';
   }
@@ -488,8 +537,11 @@ function resolveEquipment(catalogue, blockNumber, optEquipment, available) {
     ?? 'bodyweight';
   const s = String(raw).toLowerCase();
   if (s.includes('ring')) return 'rings';
+  // Check bodyweight before the generic "weight" match (avoids the substring
+  // trap: 'bodyweight' contains 'weight').
+  if (s.includes('bodyweight') || s.includes('body weight')) return 'bodyweight';
+  if (s.includes('dumbbell') || s.includes('db') || s.includes('weight')) return 'weights';
   if (s.includes('bar') || s.includes('park')) return 'bars';
-  if (s.includes('dumbbell') || s.includes('db')) return 'bars'; // bars template covers loaded patterns
   return 'bodyweight';
 }
 
