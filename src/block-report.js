@@ -19,7 +19,11 @@ function planText(plan) {
     if (Array.isArray(b.sets)) {
       const sets = b.sets.map(s => {
         const reps = (s.reps != null && s.distance_m != null) ? `${s.reps}×${s.distance_m}m` : '';
-        return [reps, s.effort, s.rest_s != null ? `${s.rest_s}s rest` : '', s.drill, s.equipment, s.breathing].filter(Boolean).join(' · ');
+        // Omit rest_s when reps === 1 — there's no next rep to rest before,
+        // so "1×400m · 0s rest" / "1×400m · 30s rest" reads as a generator
+        // glitch. (See renderer.js for the same fix in the in-app card.)
+        const showRest = s.rest_s != null && (s.reps == null || s.reps > 1);
+        return [reps, s.effort, showRest ? `${s.rest_s}s rest` : '', s.drill, s.equipment, s.breathing].filter(Boolean).join(' · ');
       }).join(' | ');
       lines.push(`- **${b.name}** (${fmt(b.volume_m)}m): ${sets}${b.cue ? ` — _${b.cue}_` : ''}${b.target ? ` → ${b.target}` : ''}`);
     } else if (Array.isArray(b.exercises)) {

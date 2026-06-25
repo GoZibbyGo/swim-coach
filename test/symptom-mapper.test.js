@@ -65,6 +65,29 @@ test('no matches → normal/empty resolution', () => {
   void matched;
 });
 
+test('quad_resolved emits clear_flags for all quad-related flags', () => {
+  const { resolved } = mapFeedback('quad cramps were no longer a problem this session');
+  assert.ok(resolved.clear_flags.includes('left_quad_cramp'));
+  assert.ok(resolved.clear_flags.includes('right_quad_cramp'));
+  assert.ok(resolved.clear_flags.includes('left_quad_pre_cramp'));
+  assert.ok(resolved.clear_flags.includes('right_quad_pre_cramp'));
+});
+
+test('rest_too_short surfaces as a note (athlete complained about recovery time)', () => {
+  const { matched } = mapFeedback("the 3 min rest didn't give me enough time to recover");
+  assert.ok(matched.some(m => m.id === 'rest_too_short'));
+});
+
+test('cool_down_modified surfaces as a stored preference', () => {
+  const { matched } = mapFeedback('changed the cool-down to 4x50 with a 5-stroke focus');
+  assert.ok(matched.some(m => m.id === 'cool_down_modified'));
+});
+
+test('clear_flags absent when no resolution phrase present', () => {
+  const { resolved } = mapFeedback('felt strong all session');
+  assert.deepEqual(resolved.clear_flags, []);
+});
+
 test('every signal has phrases and an effects object', () => {
   for (const s of FEEDBACK_SIGNALS) {
     assert.ok(Array.isArray(s.phrases) && s.phrases.length, `${s.id} missing phrases`);

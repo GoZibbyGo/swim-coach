@@ -118,6 +118,39 @@ test('a recurrence resets a flag and drops pending_clear', () => {
   assert.equal(cat.active_flags.left_quad_cramp.sessions_since, 0);
 });
 
+test('athlete "quad resolved" note lifts the quad flag immediately (no decay wait)', () => {
+  let cat = baseCat();
+  cat = logSession(cat, { type: 'pool', parsed: syntheticPool(17.5), subtype: 'threshold', feedbackText: 'left quad cramped' }).catalogue;
+  assert.ok(cat.active_flags.left_quad_cramp, 'flag should be active after the cramp');
+  // Next session — athlete reports the quad is fine. Should clear immediately,
+  // not wait the 3-session decay window.
+  cat = logSession(cat, { type: 'pool', parsed: syntheticPool(17.5), subtype: 'technique', feedbackText: 'quad cramps were no longer a problem' }).catalogue;
+  assert.equal(cat.active_flags.left_quad_cramp, undefined);
+});
+
+test('coach_flags renders athlete notes as readable text, never a raw "Feedback: <token>" tag', () => {
+  const { catalogue } = logSession(baseCat(), {
+    type: 'pool', parsed: syntheticPool(17.5), subtype: 'sprint',
+    feedbackText: 'really enjoyed it', // matches the `motivated` signal (note: true)
+  });
+  const s = catalogue.sessions[0];
+  // No raw internal token like "Feedback: motivated" — readable prose only.
+  assert.ok(!s.coach_flags.some(f => /^Feedback: [a-z_]+$/.test(f)),
+    `expected no raw token tags, got: ${JSON.stringify(s.coach_flags)}`);
+  // The note IS surfaced, just in readable form.
+  assert.ok(s.coach_flags.some(f => /Athlete note:.*motivated/.test(f)),
+    `expected "Athlete note: motivated.", got: ${JSON.stringify(s.coach_flags)}`);
+});
+
+test('"PR" in the athlete note no longer leaks "Feedback: claimed_pr"', () => {
+  const { catalogue } = logSession(baseCat(), {
+    type: 'pool', parsed: syntheticPool(17.5), subtype: 'sprint',
+    feedbackText: 'felt like a PR attempt',
+  });
+  assert.ok(!catalogue.sessions[0].coach_flags.some(f => /claimed_pr/.test(f)),
+    `claimed_pr should be suppressed (engine handles PRs), got: ${JSON.stringify(catalogue.sessions[0].coach_flags)}`);
+});
+
 test('feedback can create a NEW flag in the same log where another expires', () => {
   let cat = baseCat();
   cat = logSession(cat, { type: 'pool', parsed: syntheticPool(17.5), subtype: 'threshold', feedbackText: 'left quad cramped' }).catalogue;

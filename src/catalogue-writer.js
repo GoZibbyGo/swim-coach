@@ -13,13 +13,23 @@
 // touches this; it only ever produces structured inputs that flow through here.
 
 import { migrateCatalogue, nextSessionId, BLOCK_TARGET, drylandSlotForBlock } from './schema.js';
-import { detectFlags } from './flags.js';
+import { detectFlags, detectDrylandIssues, detectPlanDeviations } from './flags.js';
 import { inferPoolSubtype } from './classify.js';
 import { mapFeedback, FEEDBACK_SIGNALS } from './symptom-mapper.js';
 import { applyPhaseAdvancement } from './phases.js';
 
 function clone(o) { return structuredClone(o); }
 function today() { return new Date().toISOString().slice(0, 10); }
+
+// Some symptom-mapper ids don't add coaching value when surfaced as a flag
+// (e.g. `claimed_pr` — the engine has its own PR detection). Filter them
+// out; everything else gets a readable "Athlete note: …" prefix instead of
+// the raw `Feedback: <internal_token>` that used to leak.
+const SUPPRESSED_CONTEXT_NOTES = new Set(['claimed_pr']);
+function renderContextNote(id) {
+  if (SUPPRESSED_CONTEXT_NOTES.has(id)) return null;
+  return `Athlete note: ${String(id).replace(/_/g, ' ')}.`;
+}
 
 function flagDecay(flagId) {
   const sig = FEEDBACK_SIGNALS.find(s => s.effects?.flag === flagId);
@@ -206,6 +216,12 @@ export function logSession(catalogue, input = {}) {
     detected = detectFlags(input.parsed, cat, { subtype });
   }
 
+  // ── Dryland data-quality + plan-deviation checks ──
+  const drylandIssues = type === 'dryland' ? detectDrylandIssues(input.dryland ?? { exercises: [] }) : [];
+  const planDeviations = (type === 'pool' && input.parsed && input.planned)
+    ? detectPlanDeviations(input.planned, buildBreakdown(input.parsed))
+    : [];
+
   // ── Build session record ──
   const partial = signals.data_quality.includes('partial');
   const session = {
@@ -224,7 +240,9 @@ export function logSession(catalogue, input = {}) {
       : undefined,
     coach_flags: [
       ...detected.flags,
-      ...signals.context_notes.map(n => `Feedback: ${n}`),
+      ...planDeviations,
+      ...drylandIssues,
+      ...signals.context_notes.map(renderContextNote).filter(Boolean),
     ],
     notes: input.notes ?? (subtypeInference && isExternal
       ? `External session. Inferred subtype "${subtype}" (${subtypeInference.confidence} confidence: ${subtypeInference.reason})`
@@ -240,7 +258,13 @@ export function logSession(catalogue, input = {}) {
   const rolling_bests = applyNewRecords(cat.rolling_bests ?? {}, detected.new_records, date, id);
 
   // ── Active flags (with decay) ──
-  const { next: active_flags, expiring: expiring_flags } = updateActiveFlags(cat.active_flags, signals.flags, { sessionId: id, date });
+  // Apply athlete-driven clear_flags first (e.g. quad_resolved lifts the
+  // quad-cramp flag immediately, rather than waiting for the session-count
+  // decay) so the next session generation doesn't carry a restriction the
+  // athlete has explicitly cleared.
+  const flagsAfterClear = { ...(cat.active_flags ?? {}) };
+  for (const f of signals.clear_flags ?? []) delete flagsAfterClear[f];
+  const { next: active_flags, expiring: expiring_flags } = updateActiveFlags(flagsAfterClear, signals.flags, { sessionId: id, date });
 
   // ── Block tracking ──
   const { tracking: weekly_block_tracking, blockCompleted } = advanceBlockTracking(cat.weekly_block_tracking ?? {}, type, { isExternal });
@@ -303,5 +327,5 @@ export function logSession(catalogue, input = {}) {
 }
 
 function emptyResolved() {
-  return { flags: [], intensity: 'normal', volume: 'normal', recovery_tilt: false, equipment: null, technique_focus: [], data_quality: [], context_notes: [] };
+  return { flags: [], clear_flags: [], intensity: 'normal', volume: 'normal', recovery_tilt: false, equipment: null, technique_focus: [], data_quality: [], context_notes: [] };
 }

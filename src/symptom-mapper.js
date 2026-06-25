@@ -11,6 +11,8 @@
 
 // Effect fields a signal can carry:
 //   flag           - injury/condition flag id (ties to flag-rules.js)
+//   clear_flags    - list of flag ids the athlete has explicitly resolved
+//                    (lifts them from active_flags immediately, no decay wait)
 //   intensity      - 'increase' | 'hold' | 'decrease'
 //   volume         - 'increase' | 'hold' | 'decrease'
 //   recovery_tilt  - bias next session toward recovery/technique
@@ -53,6 +55,14 @@ export const FEEDBACK_SIGNALS = [
   { id: 'sharp_pain', category: 'injury', applies_to: ['both'], severity: 'critical', decay: 'until_resolved',
     phrases: ['sharp pain', 'something tweaked', 'felt a pull', 'tweaked'],
     effects: { flag: 'needs_review', recovery_tilt: true, note: true } },
+  // Athlete explicitly resolved a prior injury (lifts the flag immediately
+  // instead of waiting for decay). The phrases are scoped to quad/cramp context
+  // so an unrelated "no longer a problem" doesn't accidentally clear an injury.
+  { id: 'quad_resolved', category: 'recovery', applies_to: ['both'], severity: 'info', decay: 'this',
+    phrases: ['quad cramps were no longer a problem', 'quad cramps no longer a problem', 'quads no longer a problem',
+      'quad cramp resolved', 'quad cramps resolved', 'quad cramps gone', 'quads recovered',
+      'quads were fine', 'quads are fine', 'no quad issues', 'no more quad', 'quad cleared'],
+    effects: { clear_flags: ['left_quad_cramp', 'right_quad_cramp', 'left_quad_pre_cramp', 'right_quad_pre_cramp'] } },
 
   // ── 2. Fatigue, energy & readiness ──────────────────────────────────
   { id: 'exhausted', category: 'fatigue', applies_to: ['both'], severity: 'high', decay: 'next',
@@ -102,6 +112,10 @@ export const FEEDBACK_SIGNALS = [
   { id: 'targets_too_aggressive', category: 'intensity', applies_to: ['both'], severity: 'medium', decay: 'next',
     phrases: ['targets were unrealistic', 'no chance at that time', 'targets too aggressive'],
     effects: { intensity: 'decrease' } },
+  { id: 'rest_too_short', category: 'intensity', applies_to: ['pool'], severity: 'medium', decay: 'next',
+    phrases: ["didn't give me enough time to recover", "wasn't enough time to recover", 'rest was too short',
+      'needed more rest', 'not enough rest', 'rest too short', "couldn't recover between"],
+    effects: { note: true } },
 
   // ── 4. Completion & adherence ───────────────────────────────────────
   { id: 'cut_short', category: 'adherence', applies_to: ['both'], severity: 'high', decay: 'this',
@@ -118,6 +132,13 @@ export const FEEDBACK_SIGNALS = [
     effects: { note: true } },
   { id: 'out_of_order', category: 'adherence', applies_to: ['both'], severity: 'info', decay: 'this',
     phrases: ['out of order', 'different order'],
+    effects: { note: true } },
+  // Persistent athlete preference — surfaces to the next-session prompt so the
+  // generator can honour the modification (or at least be aware of it).
+  { id: 'cool_down_modified', category: 'adherence', applies_to: ['pool'], severity: 'info', decay: 'stored',
+    phrases: ['changed the cool-down', 'changed cool down', 'changed the cooldown', 'changed cooldown',
+      'swapped the cool-down', 'swapped cool down', 'modified the cool-down', 'modified cool down',
+      'cool-down to 4x50', 'cooldown to 4x50', 'cool-down to 4×50', '4×50 cool', '4×50 cooldown'],
     effects: { note: true } },
   { id: 'missed_intervals', category: 'adherence', applies_to: ['pool'], severity: 'medium', decay: 'this',
     phrases: ['missed the interval', 'missed intervals', "couldn't make the interval", 'fell off the interval'],
@@ -218,6 +239,7 @@ export function mapFeedback(text, opts = {}) {
 
 function resolve(matched) {
   const flags = [];
+  const clearFlags = new Set();
   const technique = new Set();
   const dataQuality = new Set();
   const contextNotes = [];
@@ -229,6 +251,7 @@ function resolve(matched) {
   for (const m of matched) {
     const e = m.effects ?? {};
     if (e.flag && !flags.includes(e.flag)) flags.push(e.flag);
+    if (Array.isArray(e.clear_flags)) e.clear_flags.forEach(f => clearFlags.add(f));
     if (e.intensity) intensityVotes.push(e.intensity);
     if (e.volume) volumeVotes.push(e.volume);
     if (e.recovery_tilt) recoveryTilt = true;
@@ -255,6 +278,7 @@ function resolve(matched) {
 
   return {
     flags,
+    clear_flags: [...clearFlags],
     intensity,
     volume,
     recovery_tilt: recoveryTilt,

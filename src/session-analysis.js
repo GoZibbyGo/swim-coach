@@ -77,6 +77,9 @@ export function buildAnalysisPrompt(session, catalogue, knowledge) {
     '- The ≥120s-rest rule applies ONLY to reps the plan labels max/sprint. Do NOT flag labeled "build"/easy reps as rest violations.',
     '- VARY the debrief — do not open every session with the same two flags or close with the same two action items. Lead with what matters most THIS session and reference cross-session trends where the data shows them.',
     '- Keep the debrief COMPLETE and self-contained: finish every section and every sentence; do not run past the length budget mid-thought.',
+    '- ALWAYS read the athlete\'s note and respond to it directly in one short paragraph: acknowledge what they reported, address any injury/recovery update (e.g. "quad cramps no longer a problem" should be reflected), and react to plan modifications (cool-down swaps, set changes). If a "Response to your notes" section makes sense, add it; otherwise weave the response into the Coaching Takeaways. Never leave the note unaddressed.',
+    '- BLOCK-LEVEL SYNTHESIS: when the engine flags a NEW BEST or "matched" record, write a one-line cross-session summary linking it to the immediately prior session(s) of the same type — e.g. "second sprint session this block to match 16.6s, with 12 reps under 17.0s." Don\'t treat each PR as an isolated event.',
+    '- NEVER emit internal classifier tags (strings of the form `Feedback: <token>` or `<lowercase_with_underscores>`) to the user. If you see one in the engine flags, drop it or rewrite it as a coaching sentence.',
     'Be specific and use the real numbers. Direct, encouraging coach voice. No preamble before the first heading.',
     knowledge ? `\nDomain context:\n${knowledge.slice(0, 5000)}` : '',
   ].filter(Boolean).join('\n');

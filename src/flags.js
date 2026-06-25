@@ -197,12 +197,20 @@ export function detectTechnical(parsed, opts = {}) {
     }
   }
 
-  // ── Cool-down HR: heuristic = last swimming interval.
+  // ── Cool-down HR: scan the final ~3 swimming intervals (typical cool-down
+  // length — covers 8×25 every-5 OR 4×50 / 20s rest). Threshold lowered from
+  // 150 → 140 because cool-down work should be RPE ≤3 / easy and 140+ bpm at
+  // easy pace is the same CO2-tolerance signal we flag elsewhere.
+  const COOL_DOWN_LOOKBACK = 3;
+  const COOL_DOWN_HR_THRESHOLD = 140;
   const swim = swimmingIntervals(intervals);
   if (swim.length) {
-    const last = swim[swim.length - 1];
-    if (last.max_hr != null && last.max_hr > 150) {
-      flags.push(`Cool-down HR elevated: max ${last.max_hr} bpm (INT ${last.interval_number}) — CO2 tolerance still lagging.`);
+    const tail = swim.slice(-COOL_DOWN_LOOKBACK);
+    const elevated = tail.filter(i => i.max_hr != null && i.max_hr >= COOL_DOWN_HR_THRESHOLD);
+    if (elevated.length) {
+      const peak = elevated.reduce((a, b) => (a.max_hr >= b.max_hr ? a : b));
+      const ratio = `${elevated.length}/${tail.length}`;
+      flags.push(`Cool-down HR elevated: peak ${peak.max_hr} bpm at INT ${peak.interval_number} (${ratio} of the closing intervals ≥${COOL_DOWN_HR_THRESHOLD}) — CO2 tolerance still lagging.`);
     }
   }
 
@@ -261,6 +269,83 @@ export function detectFlags(parsed, catalogue, opts = {}) {
     flags: [...rec.flags, ...tech.flags],
     new_records: rec.newRecords,
   };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Dryland data-quality
+// ──────────────────────────────────────────────────────────────────────────
+
+// Spot likely logging typos in dryland rep counts — a single set whose rep
+// count is way higher than its peers (e.g. "10 / 18 / 10") is almost always
+// a fat-fingered "18" instead of "10". Flag it before it enters the rolling
+// baseline. Conservative: requires both a 1.5× ratio AND ≥5 absolute reps,
+// and at least 3 sets to compare against.
+export function detectDrylandIssues(dryland) {
+  const flags = [];
+  if (!dryland || !Array.isArray(dryland.exercises)) return flags;
+  for (const ex of dryland.exercises) {
+    const reps = Array.isArray(ex.reps_per_set)
+      ? ex.reps_per_set.filter(n => typeof n === 'number' && n > 0)
+      : [];
+    if (reps.length < 3) continue;
+    const sorted = [...reps].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    const max = Math.max(...reps);
+    if (max > median * 1.5 && max - median >= 5) {
+      flags.push(`Dryland data check: ${ex.name ?? '(unnamed)'} has a high outlier (${max} vs median ${median} across ${reps.length} sets) — likely a logging typo.`);
+    }
+  }
+  return flags;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Plan deviation
+// ──────────────────────────────────────────────────────────────────────────
+
+// Compare what was actually swum against the prescribed plan and flag
+// structural deviations — total volume cut/added, and per-block rep/distance
+// mismatches (catches the "swapped cool-down to 4×50" pattern). Heuristic:
+// walks the plan's blocks in order, greedily consumes actual intervals up to
+// each block's volume, and compares counts × distance.
+export function detectPlanDeviations(plan, breakdown) {
+  const flags = [];
+  if (!plan || !Array.isArray(plan.blocks) || !Array.isArray(breakdown) || !breakdown.length) return flags;
+
+  const plannedVol = plan.total_volume_m
+    || plan.blocks.reduce((s, b) => s + (Number(b.volume_m) || 0), 0);
+  const actualVol = breakdown.reduce((s, b) => s + (Number(b.distance_m) || 0), 0);
+  if (plannedVol > 0 && Math.abs(actualVol - plannedVol) / plannedVol > 0.10) {
+    const diff = actualVol - plannedVol;
+    flags.push(`Plan deviation: total volume ${actualVol}m vs prescribed ${plannedVol}m (${diff > 0 ? '+' : '−'}${Math.abs(diff)}m).`);
+  }
+
+  // Per-block walk.
+  let idx = 0;
+  for (const block of plan.blocks) {
+    const sets = Array.isArray(block.sets) ? block.sets : [];
+    const expectedReps = sets.reduce((s, x) => s + (Number(x.reps) || 1), 0);
+    const expectedDist = sets.find(x => x.distance_m != null)?.distance_m ?? null;
+    const blockVol = sets.reduce((s, x) => s + (Number(x.reps) || 1) * (Number(x.distance_m) || 0), 0)
+      || Number(block.volume_m) || 0;
+    if (!expectedReps || !expectedDist || blockVol === 0 || idx >= breakdown.length) continue;
+    let consumed = 0;
+    let count = 0;
+    let firstDist = null;
+    while (idx < breakdown.length && consumed < blockVol * 0.9) {
+      const iv = breakdown[idx];
+      if (firstDist == null) firstDist = Number(iv.distance_m) || null;
+      consumed += Number(iv.distance_m) || 0;
+      count++;
+      idx++;
+    }
+    if (!count) continue;
+    const repsMismatch = Math.abs(count - expectedReps) >= 2;
+    const distMismatch = firstDist != null && firstDist !== expectedDist;
+    if (repsMismatch || distMismatch) {
+      flags.push(`Plan deviation: ${block.name ?? '(block)'} — prescribed ${expectedReps}×${expectedDist}m, actual ${count}×${firstDist ?? '?'}m.`);
+    }
+  }
+  return flags;
 }
 
 export { sprintReps, fiftyReps };

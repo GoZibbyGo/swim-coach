@@ -43,6 +43,27 @@ test('renders a dryland session with exercises and rationale', () => {
   assert.match(md, /Any PRs/);
 });
 
+test('single-rep blocks (warm-ups / continuous swims) omit rest_s in the rendered card', () => {
+  const session = {
+    type: 'pool', subtype: 'technique', block_number: 1, session_in_block: 1, phase: 1,
+    total_volume_m: 400, date: '2026-05-20',
+    blocks: [
+      // 1×400 with rest_s set → must NOT render "0s rest" or "30s rest"
+      { name: 'Warm-up', volume_m: 400, sets: [{ reps: 1, distance_m: 400, effort: 'easy', rest_s: 30 }] },
+      // 4×100 with rest_s set → MUST still render the rest
+      { name: 'Main', volume_m: 400, sets: [{ reps: 4, distance_m: 100, effort: 'moderate', rest_s: 20 }] },
+    ],
+  };
+  const md = renderSessionMarkdown(session);
+  // Single-rep warm-up: head shows "1×400m" but no "rest" suffix.
+  const wuLine = md.split('\n').find(l => /1×400m/.test(l));
+  assert.ok(wuLine, 'expected a warm-up line');
+  assert.ok(!/rest/.test(wuLine), `single-rep warm-up should not show rest, got: "${wuLine}"`);
+  // Multi-rep main set still shows rest.
+  const mainLine = md.split('\n').find(l => /4×100m/.test(l));
+  assert.match(mainLine, /20s rest/);
+});
+
 test('quad-flag warning appears in rendered push-off cue', () => {
   const decision = { type: 'pool', subtype: 'sprint', block_number: 2, session_in_block: 3, active_flags: ['left_quad_cramp'] };
   const { session } = buildFallbackSession(decision, catalogue(), { date: '2026-05-20', recentTemplateIds: ['sprint_speed_endurance', 'sprint_volume'] });

@@ -25,7 +25,10 @@ function setLine(set) {
   if (set.effort) bits.push(set.effort);
   if (set.breathing) bits.push(`breathing ${set.breathing}`);
   const desc = bits.length ? ` ${bits.join(', ')}` : '';
-  const rest = set.rest_s != null
+  // Single-rep blocks (typically warm-ups / continuous swims) have no NEXT rep
+  // to rest before, so showing "0s rest" or "30s rest" reads as a generator
+  // glitch. Omit rest entirely when reps === 1.
+  const rest = (set.rest_s != null && reps > 1)
     ? (set.rest_s === 0 ? ' — no rest, continuous' : ` — ${formatRest(set.rest_s)} rest`)
     : '';
   return `${head}${desc}${rest}`;

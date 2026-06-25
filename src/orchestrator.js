@@ -76,9 +76,23 @@ export function buildPrompt(decision, catalogue, targets, opts = {}) {
     ? lastMain.sets.map(s => `${s.reps}×${s.distance_m}m${s.effort ? ' ' + s.effort : ''}`).join(' + ')
     : null;
 
+  // Recent athlete free-text notes — fed to the prompt so the LLM can honour
+  // standing preferences and react to "this was too short rest" / cool-down
+  // swaps / injury resolutions / etc. Capped to keep the prompt lean.
+  const recentNotes = (catalogue?.sessions ?? [])
+    .slice(0, 3)
+    .filter(s => typeof s?.athlete_feedback === 'string' && s.athlete_feedback.trim().length)
+    .map(s => `- ${s.date} (${s.subtype || s.type}): "${s.athlete_feedback.trim().slice(0, 320)}"`)
+    .join('\n');
+
   const systemPrompt = [
     'You are an expert sprint-freestyle swim coach generating one training session.',
     'Effort is descriptive (%/RPE/"max") — the watch shows no live pace. Tone: direct, motivating, concise.',
+    '',
+    'SESSION-STRUCTURE RULES (violating these makes the session unusable):',
+    '- In a SPRINT or RACE-PACE session, NEVER place a threshold or RPE 7+ aerobic block between two sprint sets. Threshold work in a sprint session pollutes the alactic main set with lactate. If aerobic work is needed, put it BEFORE the main set as a primer, or AFTER the sprint finish as a flush — not sandwiched between sprint blocks.',
+    '- When setting stretch targets for sprint reps, cap the step from the rolling best at ~0.3s for 25m and ~0.5s for 50m. Do NOT prescribe a phase-pace target (e.g. "15.5s phase pace") more than ~0.5s below the rolling best in a single session — it reads as unattainable and demoralises the set.',
+    '- Honour STANDING ATHLETE PREFERENCES extracted from recent notes (see "Recent athlete notes" below). If the athlete has modified the same block in their last two sessions (e.g. swapped the cool-down to 4×50 with 20s rest and a low-stroke focus), incorporate that into this session\'s prescription rather than repeating the unwanted version.',
     opts.knowledge ? `\nDomain context:\n${opts.knowledge}` : '',
     `\n${SESSION_CONTRACT}`,
   ].join('\n');
@@ -105,6 +119,7 @@ export function buildPrompt(decision, catalogue, targets, opts = {}) {
     pending ? `Recent feedback adjustments to honour: ${JSON.stringify({ intensity: pending.intensity, volume: pending.volume, recovery_tilt: pending.recovery_tilt, technique_focus: pending.technique_focus })}.` : '',
     recent ? `Recent sessions (avoid repeating the last 2 main-set structures): ${recent}.` : '',
     lastMainDesc ? `Your most recent ${decision.subtype} MAIN SET was: ${lastMainDesc}. Make THIS session's main set structurally DIFFERENT (different rep length/shape) — do NOT repeat it.` : '',
+    recentNotes ? `Recent athlete notes (honour standing preferences; react to injury updates):\n${recentNotes}` : '',
   ].filter(Boolean).join('\n');
 
   return { systemPrompt, userPrompt };

@@ -4,7 +4,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { detectFlags, detectRecords, detectTechnical } from '../src/flags.js';
+import { detectFlags, detectRecords, detectTechnical, detectDrylandIssues, detectPlanDeviations } from '../src/flags.js';
 import { parseGarminCsv } from '../src/garmin-parser.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -202,6 +202,67 @@ test('does NOT flag consistent, well-rested sprint set', () => {
 const csvPath = join(__dirname, '..', 'fixtures', 'activity_22919208781.csv');
 const realCatPath = join(__dirname, '..', '..', 'Swimming Coach_code', 'athlete_catalogue.json');
 
+// ──────────────────────────────────────────────────────────────────────────
+// Dryland data-quality (round-3 feedback: catch obvious logging typos)
+
+test('detectDrylandIssues flags a high outlier rep count', () => {
+  const dryland = { exercises: [
+    { name: 'Dumbbell single-arm row', reps_per_set: [10, 18, 10] }, // 18 is likely a typo
+    { name: 'Pull-ups',                 reps_per_set: [8, 5, 5, 4] }, // realistic fatigue → no flag
+  ] };
+  const flags = detectDrylandIssues(dryland);
+  assert.ok(flags.some(f => /Dumbbell single-arm row.*outlier.*18/.test(f)));
+  assert.ok(!flags.some(f => /Pull-ups/.test(f)));
+});
+
+test('detectDrylandIssues stays quiet when fewer than 3 sets', () => {
+  const flags = detectDrylandIssues({ exercises: [{ name: 'Heavy goblet', reps_per_set: [8, 20] }] });
+  assert.equal(flags.length, 0);
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// Plan-deviation detection (round-3 feedback: catch cool-down swap)
+
+test('detectPlanDeviations flags a cool-down swap (8×25 → 4×50)', () => {
+  const plan = {
+    blocks: [
+      { name: 'Main', sets: [{ reps: 5, distance_m: 100, rest_s: 30 }] },
+      { name: 'Cool-down', sets: [{ reps: 8, distance_m: 25, rest_s: 0 }] },
+    ],
+  };
+  const breakdown = [
+    // Main: 5×100
+    { n: 1, distance_m: 100, time_s: 92 }, { n: 2, distance_m: 100, time_s: 92 },
+    { n: 3, distance_m: 100, time_s: 93 }, { n: 4, distance_m: 100, time_s: 93 },
+    { n: 5, distance_m: 100, time_s: 93 },
+    // Cool-down: 4×50 (swapped from 8×25)
+    { n: 6, distance_m: 50, time_s: 60 }, { n: 7, distance_m: 50, time_s: 60 },
+    { n: 8, distance_m: 50, time_s: 60 }, { n: 9, distance_m: 50, time_s: 60 },
+  ];
+  const flags = detectPlanDeviations(plan, breakdown);
+  assert.ok(flags.some(f => /Plan deviation: Cool-down.*8×25.*4×50/.test(f)),
+    `expected cool-down deviation, got: ${JSON.stringify(flags)}`);
+});
+
+test('detectPlanDeviations stays quiet when plan is honoured exactly', () => {
+  const plan = { blocks: [{ name: 'Main', sets: [{ reps: 4, distance_m: 100 }] }] };
+  const breakdown = [
+    { n: 1, distance_m: 100, time_s: 90 }, { n: 2, distance_m: 100, time_s: 90 },
+    { n: 3, distance_m: 100, time_s: 90 }, { n: 4, distance_m: 100, time_s: 90 },
+  ];
+  assert.deepEqual(detectPlanDeviations(plan, breakdown), []);
+});
+
+test('detectPlanDeviations flags a total-volume cut', () => {
+  const plan = { total_volume_m: 1600, blocks: [{ name: 'Main', sets: [{ reps: 8, distance_m: 200 }] }] };
+  const breakdown = [
+    { n: 1, distance_m: 200, time_s: 200 }, { n: 2, distance_m: 200, time_s: 200 },
+    { n: 3, distance_m: 200, time_s: 200 }, { n: 4, distance_m: 200, time_s: 200 },
+  ];
+  const flags = detectPlanDeviations(plan, breakdown);
+  assert.ok(flags.some(f => /total volume 800m vs prescribed 1600m/.test(f)));
+});
+
 if (existsSync(csvPath) && existsSync(realCatPath)) {
   test('session 17 flags: matched protocol best + sprint SWOLF + cool-down HR', () => {
     const out = parseGarminCsv(readFileSync(csvPath, 'utf8'));
@@ -216,8 +277,9 @@ if (existsSync(csvPath) && existsSync(realCatPath)) {
     // sprint SWOLF 24 equals current best → matched
     assert.ok(r.flags.some(f => /Sprint SWOLF best matched: 24/.test(f)));
 
-    // cool-down HR was 175
-    assert.ok(r.flags.some(f => /Cool-down HR elevated: max 175 bpm/.test(f)));
+    // cool-down HR was 175 — new lookback-3 / 140-threshold formatting:
+    // "Cool-down HR elevated: peak 175 bpm at INT N (X/Y of the closing intervals ≥140)…"
+    assert.ok(r.flags.some(f => /Cool-down HR elevated:.*peak 175 bpm/.test(f)));
   });
 } else {
   test('session 17 real-data flags — skipping (files not found)', { skip: true }, () => {});
