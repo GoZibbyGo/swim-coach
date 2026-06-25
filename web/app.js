@@ -1248,12 +1248,42 @@ async function screenHistory() {
     ['Best 50m equiv', rb.best_50m_equiv_s, 's'],
   ].filter(r => r[1] != null);
 
+  // Group sessions by block_number so any past block report can be re-downloaded
+  // (the Block-finished pop-up's file is built on the fly from the catalogue, so
+  // missing the moment isn't permanent).
+  const byBlock = new Map();
+  for (const s of sessions) {
+    const n = s?.block_number;
+    if (typeof n !== 'number') continue;
+    if (!byBlock.has(n)) byBlock.set(n, []);
+    byBlock.get(n).push(s);
+  }
+  const blockNumbers = [...byBlock.keys()].sort((a, b) => b - a); // newest first
+  const blocksCardHtml = blockNumbers.length ? `
+    <div class="card">
+      <strong>Past block reports</strong>
+      <p class="muted">Re-download any block's analysis (the same .md the "Block finished" pop-up offered). For your claude.ai coaching-review project.</p>
+      <table><tbody>${blockNumbers.map(n => {
+        const ss = byBlock.get(n);
+        const dates = ss.map(s => s.date).filter(Boolean).sort();
+        const range = dates.length === 0
+          ? '—'
+          : dates[0] === dates[dates.length - 1] ? dates[0] : `${dates[0]} → ${dates[dates.length - 1]}`;
+        return `<tr>
+          <td><strong>Block ${n}</strong></td>
+          <td class="muted">${esc(range)} · ${ss.length} session${ss.length === 1 ? '' : 's'}</td>
+          <td style="text-align:right"><button class="dlBlockBtn" data-block="${n}">⬇ .md</button></td>
+        </tr>`;
+      }).join('')}</tbody></table>
+    </div>` : '';
+
   view.innerHTML = `
     <div class="card">
       <strong>Rolling bests</strong>
       <table><tbody>${bestRows.map(([l, v, u]) => `<tr><td>${esc(l)}</td><td style="text-align:right"><strong>${esc(v)}${u}</strong></td></tr>`).join('')}</tbody></table>
     </div>
     ${flags.length ? `<div class="card"><strong>Active flags</strong><p>${flags.map(f => esc(humanizeFlag(f))).join(', ')}</p></div>` : ''}
+    ${blocksCardHtml}
     <div class="card session">
       <strong>Sessions (${sessions.length})</strong>
       <table>
@@ -1266,6 +1296,11 @@ async function screenHistory() {
         </tr>`).join('')}</tbody>
       </table>
     </div>`;
+
+  [...document.querySelectorAll('.dlBlockBtn')].forEach(btn => btn.addEventListener('click', () => {
+    const n = Number(btn.dataset.block);
+    downloadText(`swim-block-${n}-analysis.md`, buildBlockReportMarkdown(cat, n));
+  }));
 }
 
 function screenStub(name) {
