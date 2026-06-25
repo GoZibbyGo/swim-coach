@@ -40,6 +40,17 @@ const K = {
   ghSyncedAt: 'swimcoach.github.syncedAt',
 };
 
+// One-time model migration. `gemini-flash-latest` (a moving alias) started
+// 503'ing persistently on the user's key; the diagnostic showed the stable
+// `gemini-2.5-flash` healthy. Clear any stale stored value so the new default
+// takes effect; users who *did* deliberately pick `flash-latest` in Settings
+// can re-enter it there. Idempotent — only fires the once.
+try {
+  if (localStorage.getItem(K.model) === 'gemini-flash-latest') {
+    localStorage.setItem(K.model, 'gemini-2.5-flash');
+  }
+} catch { /* localStorage may be unavailable in some contexts; safe to ignore */ }
+
 // The pending (generated-but-not-yet-logged) session lives INSIDE the catalogue
 // (`pending_session`), so it syncs to GitHub with everything else — generate on
 // the phone, push, and the desktop sees the plan on its next open. Mutating it
@@ -503,7 +514,7 @@ function bannerForFallback(r) {
 
 function screenSettings() {
   const key = localStorage.getItem(K.geminiKey) || '';
-  const model = localStorage.getItem(K.model) || 'gemini-flash-latest';
+  const model = localStorage.getItem(K.model) || 'gemini-2.5-flash';
   view.innerHTML = `
     <div class="card">
       <strong>Gemini (free)</strong>
@@ -524,7 +535,7 @@ function screenSettings() {
 
   document.getElementById('saveSettings').addEventListener('click', () => {
     const k = document.getElementById('geminiKey').value.trim();
-    const m = document.getElementById('model').value.trim() || 'gemini-flash-latest';
+    const m = document.getElementById('model').value.trim() || 'gemini-2.5-flash';
     if (k) localStorage.setItem(K.geminiKey, k); else localStorage.removeItem(K.geminiKey);
     localStorage.setItem(K.model, m);
     banner('good', 'Settings saved.');

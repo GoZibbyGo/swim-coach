@@ -8,9 +8,13 @@
 //
 // Free tier: ~15 req/min, ~1500 req/day, 1M tokens/min — far above this app's
 // ~12 calls/week. NOTE: model availability on the free tier changes over time.
-// As of this build, gemini-2.0-flash has a free-tier limit of 0 for new keys,
-// while `gemini-flash-latest` (currently → Gemini 3.5 Flash) is available free.
-const DEFAULT_MODEL = 'gemini-flash-latest';
+// History (2026-06-25): `gemini-flash-latest` (a moving alias) was 503'ing
+// persistently on this key because the alias had drifted to a model under
+// heavy load; the diagnostic script (scripts/gemini-diagnose.js) showed
+// `gemini-2.5-flash` healthy on the same key. Stable named models give
+// predictable capacity, so we default to `gemini-2.5-flash` — the user can
+// override in Settings to chase whatever `-latest` points at today.
+const DEFAULT_MODEL = 'gemini-2.5-flash';
 const ENDPOINT = (model) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
@@ -31,9 +35,9 @@ export async function callGemini(args) {
     userPrompt = '',
     model = DEFAULT_MODEL,
     temperature = 0.7,
-    // Generous budget: gemini-flash-latest (3.5 Flash) is a *thinking* model —
-    // it spends output tokens reasoning before the JSON, so a small cap
-    // truncates the session mid-structure. 8192 comfortably fits both.
+    // Generous budget: the flash models are *thinking* models — they spend
+    // output tokens reasoning before the JSON, so a small cap truncates the
+    // session mid-structure. 8192 comfortably fits both.
     maxOutputTokens = 8192,
     // 'application/json' for structured generation; 'text/plain' for prose
     // (e.g. session-analysis feedback).
