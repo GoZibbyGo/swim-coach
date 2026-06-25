@@ -490,6 +490,14 @@ function bannerForFallback(r) {
     return;
   }
   if (reason === 'validation_failed') { banner('warn', 'Gemini output failed validation — using the template library (still a complete, verified session).'); return; }
+  // Transient Gemini errors (503 "model busy", 500 etc.) reach here as
+  // 'api' / 'api_error'. Make it clear the user IS getting a real session /
+  // debrief from the template library — they don't need to retry to use the
+  // app, only to get the Gemini-flavoured version.
+  if (reason === 'api' || reason === 'api_error') {
+    banner('warn', '⚠ Gemini is busy right now — your session is ready from the template library. Try again in a few minutes for the Gemini-flavoured version.');
+    return;
+  }
   banner('warn', r.message || 'Using the template library.');
 }
 

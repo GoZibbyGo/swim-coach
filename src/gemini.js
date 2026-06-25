@@ -40,6 +40,13 @@ export async function callGemini(args) {
     responseMimeType = 'application/json',
     fetchFn = globalThis.fetch,
     isOnline,
+    // 5xx responses are transient server overload (esp. 503 "model is busy" —
+    // common on the free tier at peak demand). Retry up to N times with
+    // exponential backoff before falling through to the catch-all api_error,
+    // which the caller turns into the deterministic fallback.
+    maxRetries5xx = 2,
+    baseBackoffMs = 1000,
+    sleepFn = (ms) => new Promise((r) => setTimeout(r, ms)),
   } = args ?? {};
 
   if (isOnline === false) {
@@ -59,15 +66,24 @@ export async function callGemini(args) {
   if (systemPrompt) body.systemInstruction = { parts: [{ text: systemPrompt }] };
 
   let res;
-  try {
-    res = await fetchFn(`${ENDPOINT(model)}?key=${encodeURIComponent(apiKey)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-  } catch (e) {
-    // fetch throws on network failure → treat as offline/network.
-    return offline(`Network error: ${e?.message ?? 'request failed'}`);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      res = await fetchFn(`${ENDPOINT(model)}?key=${encodeURIComponent(apiKey)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      // fetch throws on network failure → treat as offline/network.
+      return offline(`Network error: ${e?.message ?? 'request failed'}`);
+    }
+    // Retry 5xx with exponential backoff (server is overloaded, not us). Stop
+    // when we have a non-5xx response or we've exhausted the retry budget.
+    if (res.status >= 500 && res.status <= 599 && attempt < maxRetries5xx) {
+      await sleepFn(baseBackoffMs * Math.pow(2, attempt));
+      continue;
+    }
+    break;
   }
 
   if (res.status === 429) {

@@ -16,6 +16,24 @@ function fakeFetch({ status = 200, json = {}, throwErr = false } = {}) {
   };
 }
 
+// A fake fetch that returns a different status per call (for retry tests).
+function fakeFetchSequence(responses) {
+  let i = 0;
+  const calls = [];
+  const fn = async () => {
+    const idx = Math.min(i, responses.length - 1);
+    const { status = 200, json = {} } = responses[idx];
+    i++;
+    calls.push(status);
+    return { ok: status >= 200 && status < 300, status, statusText: `HTTP ${status}`, json: async () => json };
+  };
+  fn.calls = calls;
+  return fn;
+}
+
+// Skip real sleeps in tests — the retry-backoff logic uses sleepFn.
+const noSleep = async () => {};
+
 const okBody = { candidates: [{ content: { parts: [{ text: '{"hello":"world"}' }] } }] };
 
 test('returns text on a successful response', async () => {
@@ -65,9 +83,52 @@ test('categorises a daily quota limit with a reset time', async () => {
   assert.ok(typeof r.error.retry_after_iso === 'string');
 });
 
-test('generic api error on 500', async () => {
-  const r = await callGemini({ apiKey: 'k', userPrompt: 'hi', fetchFn: fakeFetch({ status: 500, json: { error: { message: 'boom' } } }) });
+test('generic api error on 500 (retries exhausted)', async () => {
+  const r = await callGemini({
+    apiKey: 'k', userPrompt: 'hi',
+    fetchFn: fakeFetch({ status: 500, json: { error: { message: 'boom' } } }),
+    sleepFn: noSleep,
+  });
   assert.equal(r.error.kind, 'api');
+});
+
+test('retries on 503 and succeeds when the third attempt is 200', async () => {
+  const fetchFn = fakeFetchSequence([
+    { status: 503, json: { error: { message: 'busy' } } },
+    { status: 503, json: { error: { message: 'still busy' } } },
+    { status: 200, json: okBody },
+  ]);
+  const r = await callGemini({ apiKey: 'k', userPrompt: 'hi', fetchFn, sleepFn: noSleep });
+  assert.equal(r.ok, true);
+  assert.equal(r.text, '{"hello":"world"}');
+  assert.deepEqual(fetchFn.calls, [503, 503, 200]); // tried 3 times
+});
+
+test('falls through to api error when 503 persists past the retry budget', async () => {
+  const fetchFn = fakeFetchSequence([
+    { status: 503, json: { error: { message: 'busy' } } },
+    { status: 503, json: { error: { message: 'busy' } } },
+    { status: 503, json: { error: { message: 'busy' } } },
+  ]);
+  const r = await callGemini({ apiKey: 'k', userPrompt: 'hi', fetchFn, sleepFn: noSleep });
+  assert.equal(r.ok, false);
+  assert.equal(r.error.kind, 'api');
+  assert.match(r.error.message, /503/);
+  assert.deepEqual(fetchFn.calls, [503, 503, 503]); // 1 initial + 2 retries = 3
+});
+
+test('maxRetries5xx=0 disables retries (1 attempt only)', async () => {
+  const fetchFn = fakeFetchSequence([{ status: 503, json: { error: { message: 'busy' } } }]);
+  const r = await callGemini({ apiKey: 'k', userPrompt: 'hi', fetchFn, maxRetries5xx: 0 });
+  assert.equal(r.error.kind, 'api');
+  assert.deepEqual(fetchFn.calls, [503]);
+});
+
+test('429 is not 5xx — no retry', async () => {
+  const fetchFn = fakeFetchSequence([{ status: 429, json: { error: { message: 'rate' } } }]);
+  const r = await callGemini({ apiKey: 'k', userPrompt: 'hi', fetchFn, sleepFn: noSleep });
+  assert.match(r.error.kind, /rate_limit/);
+  assert.deepEqual(fetchFn.calls, [429]); // no retries
 });
 
 test('parse error when no candidates', async () => {
