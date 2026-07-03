@@ -33,10 +33,17 @@ function isObject(v) {
 }
 
 // A set counts as a max-effort sprint rep if the effort text says so, or it's
-// a short rep inside a sprint-flavoured block.
+// a short rep inside a sprint-flavoured block. Progressive-build sets (effort
+// text contains "build" / "primer" / "progressive" / "ramp") are NOT max —
+// only the last rep touches full effort, so the ≥120s sprint-rest rule
+// doesn't apply. Otherwise "build 70-100%" would trip the max regex on
+// "100%" and get flagged as an under-rested sprint set.
 function isMaxEffortSprint(set, block, session) {
   const effort = String(set.effort ?? '').toLowerCase();
   const blockName = String(block.name ?? '').toLowerCase();
+  const isBuild = /\bbuild\b|\bprimer\b|\bprogressive\b|\bramp\b/.test(effort)
+    || /\bbuild\b|\bprimer\b|\bprogressive\b|\bramp\b/.test(blockName);
+  if (isBuild) return false;
   const effortMax = /max|100%|all[- ]?out/.test(effort);
   const blockSprint = /sprint|finish|max/.test(blockName);
   const shortRep = (set.distance_m ?? 0) <= 50;

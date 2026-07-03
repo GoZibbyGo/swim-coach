@@ -85,6 +85,30 @@ test('flags sprint rep with <2min rest', () => {
   assert.ok(r.errors.some(e => /sprint reps need ≥120s/.test(e)));
 });
 
+test('a "build 70-100%" primer set at 45s rest is NOT flagged as max-effort', () => {
+  const s = validSprintSession();
+  // Add a build primer inside the warm-up: 4×25 building 70→100% with 45s
+  // rest. Only the last rep touches 100% — the SET is progressive, not max,
+  // so the ≥120s sprint-rest rule doesn't apply. Was misfiring before.
+  s.blocks[0].sets.push({ reps: 4, distance_m: 25, effort: 'build 70-100%', rest_s: 45 });
+  s.blocks[0].volume_m += 100;
+  s.total_volume_m += 100;
+  const r = validateGeneratedSession(s);
+  assert.ok(!r.errors.some(e => /sprint reps need ≥120s/.test(e)),
+    `build set incorrectly flagged as max-effort: ${JSON.stringify(r.errors)}`);
+});
+
+test('a set labelled "max" at 25m with <120s rest IS still flagged (guardrail intact)', () => {
+  const s = validSprintSession();
+  // Same shape as above but effort is unambiguously "max" — must still trip.
+  s.blocks[0].sets.push({ reps: 4, distance_m: 25, effort: 'max', rest_s: 45 });
+  s.blocks[0].volume_m += 100;
+  s.total_volume_m += 100;
+  const r = validateGeneratedSession(s);
+  assert.ok(r.errors.some(e => /sprint reps need ≥120s/.test(e)),
+    `max-effort set should still be flagged, got: ${JSON.stringify(r.errors)}`);
+});
+
 test('flags threshold set >400m with <30s rest', () => {
   const s = validThresholdSession();
   // Replace main set with 4×500 at 20s rest (=2000m), rebalance total.
