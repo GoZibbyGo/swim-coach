@@ -367,6 +367,25 @@ export function parseGarminCsv(csvText, opts = {}) {
     }
   }
 
+  // ── Reclassify likely-mislabeled drills ──
+  // Garmin sometimes stamps a drill as "Unknown" (freestyle) when the athlete
+  // takes a few strokes during it (e.g. a fingertip-drag or a wall-push +
+  // partial swim). At Julian's level a real max 25m sprint takes 6–8 strokes;
+  // a single-length "Unknown" 25m with ≤5 strokes is almost always a drill.
+  // Flip its classification so EVERY downstream metric (best_25m, avg_swolf,
+  // sprintReps, sprint SWOLF best, etc.) treats it as a drill uniformly.
+  for (const iv of intervals) {
+    const lens = iv.lengths ?? [];
+    if (lens.length !== 1) continue;
+    const l = lens[0];
+    if (!l.is_freestyle || l.is_drill) continue;
+    if (l.distance_m !== poolLengthM) continue;
+    if (l.strokes == null || l.strokes > 5) continue;
+    iv.stroke = 'Drill';
+    l.is_drill = true;
+    l.is_freestyle = false;
+  }
+
   const summary = computeSummary(intervals, allLengths, poolLengthM);
   return { intervals, lengths: allLengths, summary, glitches };
 }
@@ -489,10 +508,17 @@ function computeSummary(intervals, lengths, poolLengthM) {
   const totalDistance = swimmingIntervals.reduce((s, i) => s + (i.distance_m || 0), 0);
   const totalTime = swimmingIntervals.reduce((s, i) => s + (i.time_s || 0), 0);
 
-  // Exclude SWOLF = 0 from the average — Garmin emits 0 for drill intervals
-  // where stroke count is zero (e.g. pure push-off glide), and a literal 0
-  // would drag the session-level SWOLF average toward meaninglessness.
-  const avgSwolfRaw = avg(swimmingIntervals.map(i => i.swolf).filter(v => v == null || v > 0));
+  // Exclude SWOLF = 0 AND drill intervals from the average. Garmin emits 0
+  // for pure push-off drills, and reclassified mislabeled-drill intervals
+  // (see parseGarminCsv) carry non-zero SWOLF that would still drag the
+  // session-level SWOLF average toward meaninglessness if not excluded.
+  const isDrill = (i) => String(i?.stroke ?? '').trim().toLowerCase() === 'drill';
+  const avgSwolfRaw = avg(
+    swimmingIntervals
+      .filter(i => !isDrill(i))
+      .map(i => i.swolf)
+      .filter(v => v == null || v > 0)
+  );
   const avgHr = avg(swimmingIntervals.map(i => i.avg_hr));
   const maxHrVals = swimmingIntervals.map(i => i.max_hr).filter(v => v != null);
   const maxHr = maxHrVals.length ? Math.max(...maxHrVals) : null;
@@ -514,29 +540,14 @@ function computeSummary(intervals, lengths, poolLengthM) {
   // they must not set the 25m sprint PR. Track an "unverified" candidate too:
   // the fastest standing-start length whose only glitch is adjacent_to_glitch,
   // flagged as suspicious-but-maybe-real.
-  // For the low-stroke drill filter (below): map interval_number → its total
-  // length count, so we can tell a standalone 25m rep (1 length) from L1 of a
-  // 50m or 100m interval (2+ lengths).
-  const intervalLenCounts = new Map();
-  for (const iv of intervals) intervalLenCounts.set(iv.interval_number, (iv.lengths ?? []).length);
-
   let best = null;
   let bestUnverified = null;
   for (const len of lengths) {
     if (len.time_s == null || len.time_s <= 0) continue;
     if (len.distance_m != null && len.distance_m !== poolLengthM) continue;
-    if (len.is_drill) continue;
+    if (len.is_drill) continue; // covers reclassified low-stroke standalone 25s (see parseGarminCsv)
     if (!len.is_freestyle) continue;
     if (len.length_in_interval !== 1) continue; // flying split — not a standing-start 25m
-    // Mislabeled-drill filter: Garmin sometimes stamps a drill length as
-    // "Unknown" (freestyle) when the athlete takes a few strokes during it.
-    // At Julian's level a real max 25m sprint takes 6-8 strokes; ≤5 strokes at
-    // a fast time is far more likely to be a drill/push-off glide than a PR.
-    // Only apply the check to STANDALONE 25m intervals (1-length) — for L1 of a
-    // 50m we don't have per-length stroke detail and the whole interval is a
-    // swim anyway.
-    const isStandaloneSprint = intervalLenCounts.get(len.interval_number) === 1;
-    if (isStandaloneSprint && len.strokes != null && len.strokes <= 5) continue;
 
     const hardGlitch = len.glitches.some(g => g !== 'adjacent_to_glitch');
     if (hardGlitch) continue;

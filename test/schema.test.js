@@ -164,6 +164,56 @@ test('migrateCatalogue scrub runs once and never re-stomps later bests', () => {
   assert.equal(twice.migrations_applied.filter(k => k === 'standing_start_25m_v1').length, 1);
 });
 
+test('mislabeled-drill scrub: filters suspect PR flags + corrects rolling_best_sprint_swolf', () => {
+  const c = {
+    rolling_bests: {
+      // Bogus SWOLF PR sourced from the mislabeled-drill session (id 50).
+      best_sprint_swolf: 20,
+      best_sprint_swolf_session_id: 50,
+      best_sprint_swolf_date: '2026-06-25',
+    },
+    training_phase: { current: 1 }, weekly_block_tracking: {},
+    sessions: [
+      {
+        id: 50, date: '2026-06-25', type: 'pool', subtype: 'sprint',
+        metrics: { best_25m_split_s: 16.0, best_25m_split_context: 'standing-start best (corrected from 15s ...)' },
+        coach_flags: [
+          'NEW SPRINT PROTOCOL BEST: 15s (INT 11.1) — previous 16.6s.',   // suspect — must be dropped
+          'NEW 25M BEST (raw): 15s — previous 16.1s.',                    // suspect — must be dropped
+          'NEW SPRINT SWOLF BEST: 20 (previous 22).',                     // suspect — must be dropped
+          'Sprint SWOLF best matched: 22.',                               // suspect — must be dropped
+          'NEW 50M BEST: 33.1s (INT 33) — previous 34.3s.',               // legitimate — KEEP
+          'NEW 100M BEST: 89.9s (INT 15) — previous 92s.',                // legitimate — KEEP
+          'First-length gap: L1 avg 24.5s vs L2 avg 20.1s (4.4s slower off the wall) across 7 reps.', // KEEP
+        ],
+        breakdown: [
+          // The mislabeled drill: single-length, ≤5 strokes, non-drill freestyle → reclassified.
+          { n: 11, is_drill: false, distance_m: 25, time_s: 15.0, swolf: 20, avg_strokes: 5, splits_s: [15.0] },
+          // Real sprint: single-length, 7 strokes, SWOLF 23.
+          { n: 22, is_drill: false, distance_m: 25, time_s: 16.0, swolf: 23, avg_strokes: 7, splits_s: [16.0] },
+          // Another real sprint: SWOLF 22 (this is the true session best).
+          { n: 17, is_drill: false, distance_m: 25, time_s: 16.5, swolf: 22, avg_strokes: 6, splits_s: [16.5] },
+        ],
+      },
+    ],
+  };
+  const out = migrateCatalogue(c);
+  const s = out.sessions.find(x => x.id === 50);
+  // Suspect PR flags stripped, legitimate ones kept.
+  assert.ok(!s.coach_flags.some(f => /NEW SPRINT PROTOCOL BEST/.test(f)));
+  assert.ok(!s.coach_flags.some(f => /NEW 25M BEST/.test(f)));
+  assert.ok(!s.coach_flags.some(f => /NEW SPRINT SWOLF BEST/.test(f)));
+  assert.ok(!s.coach_flags.some(f => /Sprint SWOLF best matched/.test(f)));
+  assert.ok(s.coach_flags.some(f => /NEW 50M BEST/.test(f)), 'unrelated 50m PR must be preserved');
+  assert.ok(s.coach_flags.some(f => /NEW 100M BEST/.test(f)));
+  assert.ok(s.coach_flags.some(f => /First-length gap/.test(f)));
+  // Breakdown entry for INT 11 reclassified to is_drill.
+  assert.equal(s.breakdown.find(b => b.n === 11).is_drill, true);
+  // rolling_best_sprint_swolf corrected from 20 → 22 (INT 17, the true best now that INT 11 is a drill).
+  assert.equal(out.rolling_bests.best_sprint_swolf, 22);
+  assert.ok(out.migrations_applied.includes('mislabeled_drill_scrub_v3'));
+});
+
 test('migrateCatalogue backfills 50m/100m bests from breakdowns (improve-only)', () => {
   const c = {
     rolling_bests: { best_50m_equiv_s: 38.0, best_100m_split_s: 92.0 },

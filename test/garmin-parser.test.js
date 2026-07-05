@@ -218,6 +218,28 @@ test('best_threshold_pace_per_100m is null when no qualifying sustained set exis
   assert.equal(out.summary.best_threshold_pace_per_100m, null);
 });
 
+test('reclassification: a 25m "Unknown" rep with ≤5 strokes is flipped to is_drill (excluded from avg_swolf too)', () => {
+  // INT 1: fake drill mislabeled Unknown, 25m/15s/5 strokes/SWOLF 20.
+  // INT 3: real sprint 25m/16s/7 strokes/SWOLF 23.
+  const csv = [
+    '"","Intervals","Swim Stroke","Lengths","Distance","Time","Cumulative Time","Avg Pace","Best Pace","Avg. Swolf","Avg HR","Max HR","Total Strokes","Avg Strokes","Calories"',
+    '"","1","Unknown","1","25","0:15.0","0:15.0","1:00","1:00","20","145","147","5","5","3"',
+    '"","1.1","Unknown","--","25","0:15.0","--","--","--","--","--","--","5","--","--"',
+    '"","","Rest","0","0","2:00.0","2:15.0","--","--","--","--","--","--","--","--"',
+    '"","3","Unknown","1","25","0:16.0","4:31.0","1:04","1:04","23","133","138","7","7","2"',
+    '"","3.1","Unknown","--","25","0:16.0","--","--","--","--","--","--","7","--","--"',
+  ].join('\n') + '\n';
+  const out = parseGarminCsv(csv);
+  const int1 = out.intervals.find(i => i.interval_number === 1);
+  const int3 = out.intervals.find(i => i.interval_number === 3);
+  assert.equal(int1.stroke, 'Drill', 'INT 1 (5 strokes) should be reclassified as Drill');
+  assert.equal(int1.lengths[0].is_drill, true);
+  assert.equal(int1.lengths[0].is_freestyle, false);
+  assert.equal(int3.stroke, 'Unknown', 'INT 3 (7 strokes) should stay as Unknown/freestyle');
+  // avg_swolf should reflect only INT 3 (23), not include INT 1's bogus 20.
+  assert.equal(out.summary.avg_swolf, 23);
+});
+
 test('best_25m_split_s ignores a 25m "Unknown" rep with ≤5 strokes (likely mislabeled drill)', () => {
   // INT 1: standalone 25m at 15.0s with 5 strokes → mislabeled drill. Excluded.
   // INT 3: standalone 25m at 16.0s with 7 strokes → real sprint. WINS.

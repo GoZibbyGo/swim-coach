@@ -195,6 +195,12 @@ const SCRUB_25M_KEY = 'standing_start_25m_v1';
 // "Unknown" freestyle when the athlete takes a few strokes during it — this
 // fired a bogus 15.0s "PR" against the user's ~16.0s real sprint set).
 const SCRUB_25M_STROKE_KEY = 'standing_start_25m_stroke_filter_v2';
+// v3: extends the fix beyond best_25m. Marks the mislabeled drill as
+// is_drill in the stored breakdown, filters stale PR flags off affected
+// sessions' coach_flags, recomputes each session's best_sprint_swolf, and
+// corrects rolling_bests.best_sprint_swolf if it was sourced from an affected
+// session (e.g. INT 11 SWOLF 20 wrongly held the record).
+const MISLABEL_DRILL_SCRUB_KEY = 'mislabeled_drill_scrub_v3';
 const SCRUB_BAD_25M_ON_OR_BEFORE = '2026-04-10'; // known-faulty 16.1/16.3 readings
 const STANDING_START_FLOOR_S = 13.0;             // below this a 25m split is implausible
 
@@ -260,6 +266,78 @@ function scrubStandingStart25m(cat) {
     rb.best_25m_split_s = bestVal;
     rb.best_25m_date = bestDate;
     rb.best_25m_session_id = bestId;
+  }
+}
+
+// Filters "NEW SPRINT PROTOCOL BEST", "NEW 25M BEST", "NEW SPRINT SWOLF BEST"
+// and "Sprint SWOLF best matched" lines out of a session's coach_flags. These
+// are the specific PR flags that could have been fired by the mislabeled-drill
+// data. Other bests (50m, 100m, threshold, avg pace, session SWOLF) are left
+// alone — they aren't affected by a single-interval reclassification.
+const SUSPECT_PR_FLAG_RE = /NEW SPRINT PROTOCOL BEST|NEW 25M BEST|NEW SPRINT SWOLF BEST|Sprint SWOLF best matched/i;
+
+// Re-derive a session's best sprint SWOLF from its stored breakdown: min
+// SWOLF across single-length freestyle intervals with time ≤20s that are
+// NOT drill and have SWOLF > 0.
+function bestSprintSwolfFromBreakdown(session) {
+  const bd = session?.breakdown;
+  if (!Array.isArray(bd)) return null;
+  let best = null;
+  for (const it of bd) {
+    if (it?.is_drill) continue;
+    if (!Array.isArray(it.splits_s) || it.splits_s.length !== 1) continue;
+    if (!Number.isFinite(it.time_s) || !(it.time_s > 0) || it.time_s > 20) continue;
+    if (!Number.isFinite(it.swolf) || !(it.swolf > 0)) continue;
+    if (best == null || it.swolf < best) best = it.swolf;
+  }
+  return best;
+}
+
+function scrubMislabeledDrills(cat) {
+  const sessions = Array.isArray(cat.sessions) ? cat.sessions : [];
+  const rb = cat.rolling_bests;
+  const affectedIds = new Set();
+
+  // Pass 1: reclassify likely-drill breakdown intervals + filter suspect
+  // PR flags on those sessions + recompute session-level best_sprint_swolf.
+  for (const s of sessions) {
+    if (s?.type !== 'pool') continue;
+    const bd = Array.isArray(s.breakdown) ? s.breakdown : [];
+    let touched = false;
+    for (const it of bd) {
+      if (it.is_drill) continue;
+      if (!Array.isArray(it.splits_s) || it.splits_s.length !== 1) continue;
+      if (!Number.isFinite(it.avg_strokes) || it.avg_strokes > 5) continue;
+      it.is_drill = true;
+      touched = true;
+    }
+    if (touched) affectedIds.add(s.id);
+
+    // Recompute session's best_sprint_swolf regardless (only stores if derivable).
+    const bss = bestSprintSwolfFromBreakdown(s);
+    if (bss != null) {
+      if (!s.metrics) s.metrics = {};
+      s.metrics.best_sprint_swolf_s = bss;
+    }
+
+    // If this session was touched OR its stored best_25m context says
+    // "corrected" (i.e. the earlier scrub already flipped it), drop suspect
+    // PR flags — they came from the bogus data point.
+    const wasContextCorrected = typeof s.metrics?.best_25m_split_context === 'string'
+      && /corrected/i.test(s.metrics.best_25m_split_context);
+    if ((touched || wasContextCorrected) && Array.isArray(s.coach_flags)) {
+      s.coach_flags = s.coach_flags.filter(f => !SUSPECT_PR_FLAG_RE.test(f));
+    }
+  }
+
+  // Pass 2: if rolling_bests.best_sprint_swolf was sourced from an affected
+  // session, replace the value with that session's recomputed best (post-
+  // reclassification). Leaves the record's date/session_id pointing at the
+  // same session — the value is what's stale, not the attribution.
+  if (rb && affectedIds.has(rb.best_sprint_swolf_session_id)) {
+    const src = sessions.find(s => s?.id === rb.best_sprint_swolf_session_id);
+    const bss = src?.metrics?.best_sprint_swolf_s;
+    if (Number.isFinite(bss)) rb.best_sprint_swolf = bss;
   }
 }
 
@@ -488,6 +566,10 @@ export function migrateCatalogue(catalogue) {
   if (!cat.migrations_applied.includes(SCRUB_25M_STROKE_KEY)) {
     scrubStandingStart25m(cat); // re-run — standingStartBest now excludes ≤5-stroke 25s
     cat.migrations_applied.push(SCRUB_25M_STROKE_KEY);
+  }
+  if (!cat.migrations_applied.includes(MISLABEL_DRILL_SCRUB_KEY)) {
+    scrubMislabeledDrills(cat);
+    cat.migrations_applied.push(MISLABEL_DRILL_SCRUB_KEY);
   }
   if (!cat.migrations_applied.includes(TRACK_50_100_KEY)) {
     backfill50m100m(cat);
