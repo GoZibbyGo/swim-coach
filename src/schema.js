@@ -190,12 +190,22 @@ export const ROLLING_BEST_SEEDS = Object.freeze({
 // ──────────────────────────────────────────────────────────────────────────
 
 const SCRUB_25M_KEY = 'standing_start_25m_v1';
+// v2: re-run the same scrub after tightening standingStartBest to skip
+// standalone 25m intervals with ≤5 strokes (Garmin often mislabels a drill as
+// "Unknown" freestyle when the athlete takes a few strokes during it — this
+// fired a bogus 15.0s "PR" against the user's ~16.0s real sprint set).
+const SCRUB_25M_STROKE_KEY = 'standing_start_25m_stroke_filter_v2';
 const SCRUB_BAD_25M_ON_OR_BEFORE = '2026-04-10'; // known-faulty 16.1/16.3 readings
 const STANDING_START_FLOOR_S = 13.0;             // below this a 25m split is implausible
 
 // Fastest standing-start length in a stored pool session: the first split of
 // each non-drill interval. Returns null when the session has no usable
 // per-rep breakdown (e.g. hand-authored or "describe the sets" logs).
+// Standalone 25m intervals (one length) with ≤5 strokes are skipped — those
+// are almost certainly drills that Garmin mislabelled as "Unknown" freestyle
+// (a real 25m sprint at Julian's level takes 6–8 strokes). The per-interval
+// `avg_strokes` field on a single-length interval equals the strokes for that
+// one length.
 function standingStartBest(session) {
   const bd = session?.breakdown;
   if (!Array.isArray(bd) || bd.length === 0) return null;
@@ -204,6 +214,8 @@ function standingStartBest(session) {
     if (it?.is_drill) continue;
     const splits = it?.splits_s;
     if (!Array.isArray(splits) || splits.length === 0) continue;
+    // Standalone 25m with ≤5 strokes → suspected mislabeled drill; skip.
+    if (splits.length === 1 && Number.isFinite(it.avg_strokes) && it.avg_strokes <= 5) continue;
     const first = splits[0]; // standing start; later splits are flying (turn-aided)
     if (first != null && Number.isFinite(first) && first > STANDING_START_FLOOR_S) {
       if (best == null || first < best) best = first;
@@ -472,6 +484,10 @@ export function migrateCatalogue(catalogue) {
   if (!cat.migrations_applied.includes(SCRUB_25M_KEY)) {
     scrubStandingStart25m(cat);
     cat.migrations_applied.push(SCRUB_25M_KEY);
+  }
+  if (!cat.migrations_applied.includes(SCRUB_25M_STROKE_KEY)) {
+    scrubStandingStart25m(cat); // re-run — standingStartBest now excludes ≤5-stroke 25s
+    cat.migrations_applied.push(SCRUB_25M_STROKE_KEY);
   }
   if (!cat.migrations_applied.includes(TRACK_50_100_KEY)) {
     backfill50m100m(cat);

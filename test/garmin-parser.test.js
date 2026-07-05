@@ -218,6 +218,23 @@ test('best_threshold_pace_per_100m is null when no qualifying sustained set exis
   assert.equal(out.summary.best_threshold_pace_per_100m, null);
 });
 
+test('best_25m_split_s ignores a 25m "Unknown" rep with ≤5 strokes (likely mislabeled drill)', () => {
+  // INT 1: standalone 25m at 15.0s with 5 strokes → mislabeled drill. Excluded.
+  // INT 3: standalone 25m at 16.0s with 7 strokes → real sprint. WINS.
+  const csv = [
+    '"","Intervals","Swim Stroke","Lengths","Distance","Time","Cumulative Time","Avg Pace","Best Pace","Avg. Swolf","Avg HR","Max HR","Total Strokes","Avg Strokes","Calories"',
+    '"","1","Unknown","1","25","0:15.0","0:15.0","1:00","1:00","20","145","147","5","5","3"',
+    '"","1.1","Unknown","--","25","0:15.0","--","--","--","--","--","--","5","--","--"',
+    '"","","Rest","0","0","2:00.0","2:15.0","--","--","--","--","--","--","--","--"',
+    '"","2","Rest","--","--","1:00.0","3:15.0","--","--","--","--","--","--","--","--"',
+    '"","3","Unknown","1","25","0:16.0","4:31.0","1:04","1:04","23","133","138","7","7","2"',
+    '"","3.1","Unknown","--","25","0:16.0","--","--","--","--","--","--","7","--","--"',
+  ].join('\n') + '\n';
+  const out = parseGarminCsv(csv);
+  assert.equal(out.summary.best_25m_split_s, 16.0);
+  assert.equal(out.summary.best_25m_context, 'INT 3.1');
+});
+
 test('best_50m_split_s / best_100m_split_s pick the fastest full-distance reps', () => {
   // INT 1: a 100m rep (4 lengths, 96.0s). INT 3: a 50m rep (2 lengths, 33.0s).
   const csv = [

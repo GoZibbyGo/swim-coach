@@ -514,6 +514,12 @@ function computeSummary(intervals, lengths, poolLengthM) {
   // they must not set the 25m sprint PR. Track an "unverified" candidate too:
   // the fastest standing-start length whose only glitch is adjacent_to_glitch,
   // flagged as suspicious-but-maybe-real.
+  // For the low-stroke drill filter (below): map interval_number → its total
+  // length count, so we can tell a standalone 25m rep (1 length) from L1 of a
+  // 50m or 100m interval (2+ lengths).
+  const intervalLenCounts = new Map();
+  for (const iv of intervals) intervalLenCounts.set(iv.interval_number, (iv.lengths ?? []).length);
+
   let best = null;
   let bestUnverified = null;
   for (const len of lengths) {
@@ -522,6 +528,15 @@ function computeSummary(intervals, lengths, poolLengthM) {
     if (len.is_drill) continue;
     if (!len.is_freestyle) continue;
     if (len.length_in_interval !== 1) continue; // flying split — not a standing-start 25m
+    // Mislabeled-drill filter: Garmin sometimes stamps a drill length as
+    // "Unknown" (freestyle) when the athlete takes a few strokes during it.
+    // At Julian's level a real max 25m sprint takes 6-8 strokes; ≤5 strokes at
+    // a fast time is far more likely to be a drill/push-off glide than a PR.
+    // Only apply the check to STANDALONE 25m intervals (1-length) — for L1 of a
+    // 50m we don't have per-length stroke detail and the whole interval is a
+    // swim anyway.
+    const isStandaloneSprint = intervalLenCounts.get(len.interval_number) === 1;
+    if (isStandaloneSprint && len.strokes != null && len.strokes <= 5) continue;
 
     const hardGlitch = len.glitches.some(g => g !== 'adjacent_to_glitch');
     if (hardGlitch) continue;
