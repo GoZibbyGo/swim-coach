@@ -54,6 +54,13 @@ test('sprint targets: beat current best, stretch -0.3s, swolf best -1', () => {
   assert.equal(t.phase_25m_target_s, 15.5);      // Phase-1 25m milestone (live from phases.js)
 });
 
+test('sprint targets: implied_50m_from_stretch reconciles 25m and 50m goals', () => {
+  const t = computeTargets(catalogue(), 'sprint');
+  // stretch 16.5 → implied 50m = 2 × 16.5 − 1.5 (turn savings) = 31.5s.
+  // No more three-way disagreement between beat/stretch/phase/50m.
+  assert.equal(t.implied_50m_from_stretch_s, 31.5);
+});
+
 // ──────────────────────────────────────────────────────────────────────────
 // Threshold targets
 

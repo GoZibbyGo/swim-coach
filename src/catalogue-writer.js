@@ -211,9 +211,12 @@ export function logSession(catalogue, input = {}) {
   const signals = fb.resolved;
 
   // ── Flag detection (pool) ──
+  // Pass fb (matched signals) so detectTechnical can reconcile safety flags
+  // with the athlete's own note — e.g. skip "rest too short" on the final rep
+  // of a cut-short session, hedge velocity fade when nausea aborted the swim.
   let detected = { flags: [], new_records: {} };
   if (type === 'pool' && input.parsed) {
-    detected = detectFlags(input.parsed, cat, { subtype });
+    detected = detectFlags(input.parsed, cat, { subtype, signals: fb });
   }
 
   // ── Dryland data-quality + plan-deviation checks ──

@@ -165,6 +165,14 @@ export function detectTechnical(parsed, opts = {}) {
   const flags = [];
   const intervals = parsed.intervals ?? [];
   const lengths = parsed.lengths ?? [];
+  // Round-4 feedback: reconcile safety flags with the athlete's own explanation
+  // before asserting them. A session the athlete says was cut short means the
+  // FINAL rep's short rest is the session-end tail (not a prescription failure)
+  // and any velocity fade is likely CO2/nausea driven (not a training-design
+  // problem). Both were false-positived in Session 27; the mapper already
+  // classifies these — the flag layer just needs to honour it.
+  const cutShort = Array.isArray(opts.signals?.matched)
+    && opts.signals.matched.some(m => m.id === 'cut_short' || m.id === 'terminated_injury');
 
   // ── Stroke drift: first third vs last third of freestyle, non-drill lengths.
   const effortLengths = lengths.filter(l => l.is_freestyle && !l.is_drill && l.strokes != null && l.strokes > 0);
@@ -225,12 +233,17 @@ export function detectTechnical(parsed, opts = {}) {
         flags.push(`Sprint pacing inconsistent: ${spread}s spread across ${times.length} max reps (fastest ${Math.min(...times)}s, slowest ${Math.max(...times)}s).`);
       }
       const fade = round1(times[times.length - 1] - times[0]);
-      if (fade >= 1.0) {
+      // Skip fade flag when the athlete told us the session was aborted — the
+      // slowdown is CO2/nausea (per note), not a training-design problem.
+      if (fade >= 1.0 && !cutShort) {
         flags.push(`Velocity fade: last sprint rep ${fade}s slower than the first (${times[0]}s → ${times[times.length - 1]}s) — fatigue or rest too short.`);
       }
     }
-    // Rest adherence — alactic quality and (for Julian) quad protection.
-    const shortRest = reps.filter(r => r.rest_after_s != null && r.rest_after_s < 120);
+    // Rest adherence — alactic quality and (for Julian) quad protection. When
+    // the session was cut short, the final rep's rest_after_s is the session-
+    // end tail, not a prescription failure — drop it from the check.
+    const restReps = cutShort ? reps.slice(0, -1) : reps;
+    const shortRest = restReps.filter(r => r.rest_after_s != null && r.rest_after_s < 120);
     if (shortRest.length) {
       const detail = shortRest.map(r => `INT ${r.interval_number} (${Math.round(r.rest_after_s)}s)`).join(', ');
       flags.push(`Sprint rest too short on ${shortRest.length} rep(s): ${detail} — max efforts need ≥120s. Short rest blunts speed adaptation and removes quad protection.`);

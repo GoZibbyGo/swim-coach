@@ -42,6 +42,15 @@ export const TARGET_STEPS = Object.freeze({
   // Default stroke-count target per length (Phase 1 sprint efficiency goal).
   stroke_count_target: 7,
   stroke_count_acceptable: 8,
+
+  // How much faster L2 of a 50 (flying + turn) is than a from-a-push 25.
+  // Used to derive a coherent 50m target from the 25m stretch: a swimmer who
+  // can hit `stretch_25m_s` from a standing start should hit roughly
+  // 2 × stretch_25m_s − turn_savings for a full 50m rep. Julian's L1/L2 gap
+  // across recent 50m reps clusters around 3–4s; the ~1.5s figure conservatively
+  // credits half of that to the physics of the flying-start turn (not
+  // effort/strength gains yet).
+  turn_savings_s: 1.5,
 });
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -97,14 +106,25 @@ function sprintSwolfTarget(catalogue) {
 }
 
 /**
- * Sprint 25m targets.
+ * Sprint 25m targets — one coherent ladder for the LLM to restate verbatim.
+ *
+ * A single anchor (the current best 25m sprint) drives every downstream number
+ * so beat/stretch/implied-50m can't disagree. Round-4 feedback: the plan had
+ * been prescribing three different 50m goals in one sprint session
+ * (phase_50m 33s vs 2×stretch 32.6s vs an implied 31s from the phase 25m).
+ * The `implied_50m_from_stretch_s` field is the ONE 50m number to prescribe in
+ * a sprint session's 50m reps; `phase_50m_target_s` (via race_pace) is the
+ * long-horizon aspiration, not a per-session prescription.
  */
 function sprintTargets(catalogue) {
-  const best = rb(catalogue).best_25m_sprint_protocol_s ?? rb(catalogue).best_25m_split_s;
+  const anchor = rb(catalogue).best_25m_sprint_protocol_s ?? rb(catalogue).best_25m_split_s;
+  const stretch = anchor != null ? round1(anchor - TARGET_STEPS.sprint_25m_stretch_s) : null;
+  const implied50 = stretch != null ? round1(stretch * 2 - TARGET_STEPS.turn_savings_s) : null;
   const phaseTarget = phaseTargetFor(currentPhase(catalogue), 'best_25m_sprint_protocol_s');
   return {
-    beat_25m_s: best ?? null,
-    stretch_25m_s: best != null ? round1(best - TARGET_STEPS.sprint_25m_stretch_s) : null,
+    beat_25m_s: anchor ?? null,
+    stretch_25m_s: stretch,
+    implied_50m_from_stretch_s: implied50,
     sprint_swolf_target: sprintSwolfTarget(catalogue),
     stroke_count_target: TARGET_STEPS.stroke_count_target,
     stroke_count_acceptable: TARGET_STEPS.stroke_count_acceptable,

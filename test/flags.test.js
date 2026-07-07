@@ -205,6 +205,43 @@ const realCatPath = join(__dirname, '..', '..', 'Swimming Coach_code', 'athlete_
 // ──────────────────────────────────────────────────────────────────────────
 // Dryland data-quality (round-3 feedback: catch obvious logging typos)
 
+test('cut_short signal suppresses the trailing rep from the sprint-rest check', () => {
+  // 4 sprint reps: first three have 130s rest (ok), the last has 15s rest
+  // (short) — because the session was cut short and there was no next rep.
+  const reps = [
+    sprintRep(1, 16.5, 24, 7, 130),
+    sprintRep(2, 16.6, 24, 7, 130),
+    sprintRep(3, 16.7, 24, 7, 130),
+    sprintRep(4, 16.8, 24, 7, 15),
+  ];
+  const p = parsed({ intervals: reps, summary: {} });
+  const catalogue = { rolling_bests: {} };
+  // Without cut_short: the 15s rest fires the flag.
+  const noSignal = detectFlags(p, catalogue);
+  assert.ok(noSignal.flags.some(f => /Sprint rest too short/.test(f)));
+  // With cut_short: the trailing rep is dropped from the check — no flag.
+  const withCutShort = detectFlags(p, catalogue, {
+    signals: { matched: [{ id: 'cut_short' }] },
+  });
+  assert.ok(!withCutShort.flags.some(f => /Sprint rest too short/.test(f)));
+});
+
+test('cut_short signal also suppresses velocity fade (athlete already explained)', () => {
+  const reps = [
+    sprintRep(1, 15.0, 22, 7, 130),
+    sprintRep(2, 15.2, 22, 7, 130),
+    sprintRep(3, 17.8, 25, 8, 130), // big fade — but athlete said nausea/cut-short
+  ];
+  const p = parsed({ intervals: reps, summary: {} });
+  const catalogue = { rolling_bests: {} };
+  const noSignal = detectFlags(p, catalogue);
+  assert.ok(noSignal.flags.some(f => /Velocity fade/.test(f)));
+  const withCutShort = detectFlags(p, catalogue, {
+    signals: { matched: [{ id: 'cut_short' }] },
+  });
+  assert.ok(!withCutShort.flags.some(f => /Velocity fade/.test(f)));
+});
+
 test('detectDrylandIssues flags a high outlier rep count', () => {
   const dryland = { exercises: [
     { name: 'Dumbbell single-arm row', reps_per_set: [10, 18, 10] }, // 18 is likely a typo
