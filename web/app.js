@@ -28,6 +28,10 @@ const K = {
   geminiKey: 'swimcoach.geminiKey', // shared across real + demo
   model: 'swimcoach.model',         // shared
   equipment: 'swimcoach.equipment', // shared device preference (not synced)
+  logDraft: 'swimcoach.logDraft',   // per-device in-progress Log form values
+                                    // (reps/weights/notes/etc.) so a nav to
+                                    // Today for a rest-time check doesn't wipe
+                                    // what's been entered so far.
   // GitHub sync — real data only (sync is disabled in demo). Token/repo config
   // plus the last-synced blob sha, a dirty flag, and the last-synced timestamp.
   ghToken: 'swimcoach.github.token',
@@ -64,7 +68,75 @@ function setPending(session) {
   if (!cat) return; // catalogue is always loaded before we generate
   cat.pending_session = { session, at: Date.now() };
   saveCatalogue(cat);
+  clearLogDraft(); // any pre-existing draft was for the old plan
 }
+// ── Log-form draft persistence ────────────────────────────────────────────
+// Saves the Log tab's in-progress inputs (reps, weights, feedback text, radio
+// selections, completed checkbox) to localStorage on every keystroke so that
+// navigating away — e.g. to Today to check a rest time — and back doesn't
+// wipe what's been entered so far. Restored on renderLogBody(), cleared on
+// successful log AND whenever the pending session changes (a fresh Generate
+// or a completed log — different session, so the old draft is stale).
+function saveLogDraft() {
+  try {
+    const data = {};
+    document.querySelectorAll('#logBody input[data-key], #logBody textarea[data-key]').forEach(el => {
+      data[el.dataset.key] = el.value;
+    });
+    const fb = document.getElementById('feedback');
+    if (fb) data.__feedback = fb.value;
+    const cp = document.getElementById('completed');
+    if (cp) data.__completed = cp.checked;
+    const desc = document.getElementById('poolDescribe');
+    if (desc) data.__poolDescribe = desc.value;
+    const extDry = document.getElementById('extDryPlan');
+    if (extDry) data.__extDryPlan = extDry.value;
+    ['src', 'etype'].forEach(name => {
+      const checked = document.querySelector(`input[name="${name}"]:checked`);
+      if (checked) data[`__radio_${name}`] = checked.value;
+    });
+    localStorage.setItem(K.logDraft, JSON.stringify(data));
+  } catch { /* localStorage may be unavailable in some contexts */ }
+}
+function restoreLogDraft() {
+  try {
+    const raw = localStorage.getItem(K.logDraft);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    // Radios first — src changes what body is rendered, etype toggles pool/dryland.
+    if (data.__radio_src) {
+      const r = document.querySelector(`input[name="src"][value="${data.__radio_src}"]`);
+      if (r && !r.checked) { r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); }
+    }
+    if (data.__radio_etype) {
+      const r = document.querySelector(`input[name="etype"][value="${data.__radio_etype}"]`);
+      if (r && !r.checked) { r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); }
+    }
+    document.querySelectorAll('#logBody input[data-key], #logBody textarea[data-key]').forEach(el => {
+      const v = data[el.dataset.key];
+      if (v != null) el.value = v;
+    });
+    const fb = document.getElementById('feedback');
+    if (fb && data.__feedback != null) fb.value = data.__feedback;
+    const cp = document.getElementById('completed');
+    if (cp && data.__completed != null) cp.checked = !!data.__completed;
+    const desc = document.getElementById('poolDescribe');
+    if (desc && data.__poolDescribe != null) desc.value = data.__poolDescribe;
+    const extDry = document.getElementById('extDryPlan');
+    if (extDry && data.__extDryPlan != null) {
+      extDry.value = data.__extDryPlan;
+      // Re-render the per-exercise result boxes from the restored plan text.
+      extDry.dispatchEvent(new Event('input', { bubbles: true }));
+      // …then re-populate the boxes on the *next* tick, since the render is synchronous.
+      queueMicrotask(() => document.querySelectorAll('#extDryResults input[data-key]').forEach(el => {
+        const v = data[el.dataset.key];
+        if (v != null) el.value = v;
+      }));
+    }
+  } catch { /* ignore */ }
+}
+function clearLogDraft() { try { localStorage.removeItem(K.logDraft); } catch { /* ignore */ } }
+
 function clearPending() {
   const cat = readCatalogueRaw();
   if (!cat?.pending_session) return;
@@ -743,10 +815,14 @@ function screenLog() {
       <button id="briefBtn" class="block secondary">⬇ Download coaching project brief</button>
     </div>`;
 
-  [...document.querySelectorAll('input[name=src]')].forEach(r => r.addEventListener('change', renderLogBody));
+  [...document.querySelectorAll('input[name=src]')].forEach(r => r.addEventListener('change', () => { renderLogBody(); saveLogDraft(); }));
   renderLogBody();
   document.getElementById('logBtn').addEventListener('click', submitLog);
   document.getElementById('briefBtn').addEventListener('click', downloadBrief);
+  // Global save-on-input for anything in the Log screen. Delegated to the view
+  // element so we don't have to rebind after each renderLogBody() re-render.
+  view.addEventListener('input', saveLogDraft);
+  view.addEventListener('change', saveLogDraft);
 }
 
 async function downloadBrief() {
@@ -764,6 +840,9 @@ function renderLogBody() {
   const src = currentSrc();
   const body = document.getElementById('logBody');
   const hint = document.getElementById('srcHint');
+  // Ensure any in-progress form values from the previous render survive the
+  // upcoming re-render (the body.innerHTML wipe drops them from the DOM).
+  // Restore fires *after* we rebuild the HTML.
 
   if (src === 'planned' && pending?.session) {
     const s = pending.session;
@@ -771,6 +850,7 @@ function renderLogBody() {
     body.innerHTML = s.type === 'dryland'
       ? `<p class="muted" style="padding:0 4px">Enter what you actually did — one box per set:</p>${buildDrylandPlannedForm(s)}`
       : `<div class="card"><strong>Pool data</strong><label>Garmin CSV (export from Garmin Connect)</label><input type="file" id="csvFile" /></div>`;
+    restoreLogDraft();
     return;
   }
 
@@ -811,6 +891,8 @@ function renderLogBody() {
     try { planArea.value = await f.text(); renderExtDryResults(); }
     catch { banner('warn', "Couldn't read that file as text — type the exercises instead."); }
   });
+  // Repopulate anything the user had already entered before navigating away.
+  restoreLogDraft();
 }
 
 function renderExtDryResults() {
@@ -852,9 +934,9 @@ function exerciseResultBoxes(exercises) {
     const weighted = isWeightedExercise(e);
     const planned = e.prescription || (e.reps_per_set != null ? `${e.reps_per_set} reps` : '');
     const repBoxes = Array.from({ length: sets }, (_, s) =>
-      `<input type="text" class="exbox" data-ei="${ei}" data-unit="${unit}" inputmode="numeric" placeholder="S${s + 1}" />`).join('');
+      `<input type="text" class="exbox" data-ei="${ei}" data-unit="${unit}" data-key="ext_${ei}_reps_${s}" inputmode="numeric" placeholder="S${s + 1}" />`).join('');
     const weightBoxes = weighted ? Array.from({ length: sets }, (_, s) =>
-      `<input type="text" class="exweight" data-ei="${ei}" inputmode="decimal" placeholder="S${s + 1} kg" />`).join('') : '';
+      `<input type="text" class="exweight" data-ei="${ei}" data-key="ext_${ei}_kg_${s}" inputmode="decimal" placeholder="S${s + 1} kg" />`).join('') : '';
     const weightRow = weighted ? `<div class="row setrow"><span class="muted" style="min-width:70px">Weight kg</span>${weightBoxes}</div>` : '';
     const repLabelPrefix = weighted ? '<span class="muted" style="min-width:70px">Actual</span>' : '';
     return `<label>${esc(e.name)} <span class="muted">(planned ${sets}×${esc(planned)} — actual ${unit}${weighted ? ' + weight' : ''})</span></label>` +
@@ -887,13 +969,16 @@ function buildDrylandPlannedForm(session) {
       const unit = isHoldExercise(e) ? 's' : 'reps';
       const weighted = isWeightedExercise(e);
       const presc = e.prescription || (e.reps_per_set ? `${e.reps_per_set} reps` : '');
+      // Show prescribed rest between sets so the athlete doesn't have to
+      // navigate back to Today (which would blow away their in-progress form).
+      const restBit = (e.rest_s != null && Number(e.rest_s) > 0) ? ` · rest ${e.rest_s}s` : '';
       const repBoxes = Array.from({ length: sets }, (_, s) =>
-        `<input type="text" class="setbox" data-bi="${bi}" data-ei="${ei}" data-unit="${unit}" inputmode="numeric" placeholder="S${s + 1}" />`).join('');
+        `<input type="text" class="setbox" data-bi="${bi}" data-ei="${ei}" data-unit="${unit}" data-key="dry_${bi}_${ei}_reps_${s}" inputmode="numeric" placeholder="S${s + 1}" />`).join('');
       const weightBoxes = weighted ? Array.from({ length: sets }, (_, s) =>
-        `<input type="text" class="setweight" data-bi="${bi}" data-ei="${ei}" inputmode="decimal" placeholder="S${s + 1} kg" />`).join('') : '';
+        `<input type="text" class="setweight" data-bi="${bi}" data-ei="${ei}" data-key="dry_${bi}_${ei}_kg_${s}" inputmode="decimal" placeholder="S${s + 1} kg" />`).join('') : '';
       const weightRow = weighted ? `<div class="row setrow"><span class="muted" style="min-width:70px">Weight kg</span>${weightBoxes}</div>` : '';
       const repLabelPrefix = weighted ? '<span class="muted" style="min-width:70px">Actual</span>' : '';
-      return `<label>${esc(e.name)} <span class="muted">(${sets}×${esc(presc)}, ${unit}${weighted ? ' + weight' : ''})</span></label>` +
+      return `<label>${esc(e.name)} <span class="muted">(${sets}×${esc(presc)}, ${unit}${weighted ? ' + weight' : ''}${restBit})</span></label>` +
              `<div class="row setrow">${repLabelPrefix}${repBoxes}</div>${weightRow}`;
     }).join('');
     return `<div class="card"><strong>${esc(b.name)}</strong>${note}${exs}</div>`;
@@ -1013,7 +1098,8 @@ async function submitLog() {
     }
     const r = logSession(catalogue, input);
     saveCatalogue(r.catalogue);
-    if (isPlanned) clearPending(); // unblocks generating the next session
+    clearLogDraft();                // form-state cache is now stale
+    if (isPlanned) clearPending();   // unblocks generating the next session
     renderDebrief(r);
     if (r.block_completed) showBlockFinished(r.catalogue, r.completed_block_number);
     banner('good', 'Session logged.' + (r.block_completed ? ` 🎉 Block ${r.completed_block_number} complete!` : (isPlanned ? ' You can generate the next session now.' : '')));
