@@ -24,6 +24,22 @@ import { phaseHasSprintFinish } from './phases.js';
 
 function today() { return new Date().toISOString().slice(0, 10); }
 
+// Template ids the athlete has recently been given, newest first, so the
+// fallback library can avoid handing back a session they just swam.
+//
+// This is DERIVED from the catalogue rather than supplied by the caller: the
+// web app never passed `recentTemplateIds`, so `buildFallbackSession` always
+// received `[]` and the library had zero anti-repetition memory — it re-picked
+// the same template every time Gemini was unavailable. Deriving it here means
+// no call site can forget. `opts.recentTemplateIds` still overrides (tests).
+const RECENT_TEMPLATE_LOOKBACK = 6;
+export function recentTemplateIdsFrom(catalogue) {
+  return (catalogue?.sessions ?? [])
+    .slice(0, RECENT_TEMPLATE_LOOKBACK)
+    .map(s => s?.plan?.template_id ?? s?.template_id)
+    .filter(Boolean);
+}
+
 // Equipment the athlete can toggle before generating (pre-session checkboxes).
 const EQUIP_LABELS = {
   paddles: 'paddles', pull_buoy: 'pull buoy', bars: 'pull-up/dip bars',
@@ -68,13 +84,24 @@ export function buildPrompt(decision, catalogue, targets, opts = {}) {
   const recent = (catalogue?.sessions ?? []).slice(0, 3)
     .map(s => `${s.date} ${s.type}/${s.subtype}`).join('; ');
 
-  // The most recent same-subtype session's prescribed main set — fed back so the
-  // LLM can make THIS session structurally different (not the same 6×200 twice).
-  const lastSame = (catalogue?.sessions ?? []).find(s => s.subtype === decision.subtype && Array.isArray(s.plan?.blocks));
-  const lastMain = lastSame && lastSame.plan.blocks.find(b => /main/i.test(b.name ?? ''));
-  const lastMainDesc = lastMain?.sets?.length
-    ? lastMain.sets.map(s => `${s.reps}×${s.distance_m}m${s.effort ? ' ' + s.effort : ''}`).join(' + ')
-    : null;
+  // The last few same-subtype MAIN SETS — fed back so the LLM can make THIS
+  // session structurally different. Looking at only ONE prior session (the old
+  // `.find()`) let the generator ping-pong A/B/A/B forever: it avoided the
+  // immediately-previous shape by returning to the one before it. Three deep
+  // makes genuine rotation the cheapest way to satisfy the constraint.
+  const SAME_SUBTYPE_LOOKBACK = 3;
+  const describeMain = (s) => {
+    const main = s.plan.blocks.find(b => /main/i.test(b.name ?? ''));
+    if (!main?.sets?.length) return null;
+    const shape = main.sets.map(x => `${x.reps}×${x.distance_m}m${x.effort ? ' ' + x.effort : ''}`).join(' + ');
+    return `${s.date}: ${shape}`;
+  };
+  const recentMains = (catalogue?.sessions ?? [])
+    .filter(s => s.subtype === decision.subtype && Array.isArray(s.plan?.blocks))
+    .slice(0, SAME_SUBTYPE_LOOKBACK)
+    .map(describeMain)
+    .filter(Boolean);
+  const lastMainDesc = recentMains.length ? recentMains.join('\n  ') : null;
 
   // Recent athlete free-text notes — fed to the prompt so the LLM can honour
   // standing preferences and react to "this was too short rest" / cool-down
@@ -124,7 +151,7 @@ export function buildPrompt(decision, catalogue, targets, opts = {}) {
     decision.active_flags?.length ? `ACTIVE INJURY FLAGS: ${decision.active_flags.join(', ')}.\nFlag guidance:\n${guidance}` : 'No active injury flags.',
     pending ? `Recent feedback adjustments to honour: ${JSON.stringify({ intensity: pending.intensity, volume: pending.volume, recovery_tilt: pending.recovery_tilt, technique_focus: pending.technique_focus })}.` : '',
     recent ? `Recent sessions (avoid repeating the last 2 main-set structures): ${recent}.` : '',
-    lastMainDesc ? `Your most recent ${decision.subtype} MAIN SET was: ${lastMainDesc}. Make THIS session's main set structurally DIFFERENT (different rep length/shape) — do NOT repeat it.` : '',
+    lastMainDesc ? `Your last ${recentMains.length} ${decision.subtype} MAIN SET(s), newest first:\n  ${lastMainDesc}\nMake THIS session's main set structurally DIFFERENT from ALL of them — not just the newest. Returning to the shape from two sessions ago still counts as repeating.` : '',
     recentNotes ? `Recent athlete notes (honour standing preferences; react to injury updates):\n${recentNotes}` : '',
   ].filter(Boolean).join('\n');
 
@@ -256,7 +283,7 @@ export async function generateSession(catalogue, opts = {}) {
 function fallback(decision, catalogue, targets, opts, meta) {
   const { session } = buildFallbackSession(decision, catalogue, {
     date: opts.date ?? today(),
-    recentTemplateIds: opts.recentTemplateIds ?? [],
+    recentTemplateIds: opts.recentTemplateIds ?? recentTemplateIdsFrom(catalogue),
     equipment: opts.equipment,
     equipmentAvailable: opts.equipmentAvailable,
   });

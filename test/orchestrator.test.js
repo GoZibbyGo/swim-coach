@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { generateSession, buildPrompt } from '../src/orchestrator.js';
+import { generateSession, buildPrompt, recentTemplateIdsFrom } from '../src/orchestrator.js';
 
 function catalogue() {
   return {
@@ -166,4 +166,46 @@ test('generateSession forwards equipment availability into the LLM prompt', asyn
   const callFn = async (args) => { captured = args.userPrompt; return { ok: true, text: validLlmJson }; };
   await generateSession(catalogue(), { apiKey: 'k', callGeminiFn: callFn, equipmentAvailable: ['rings'] });
   assert.match(captured, /Available equipment:.*gymnastic rings/);
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// Anti-repetition (workstream B: "lack of creativity")
+
+test('recentTemplateIdsFrom reads template ids off logged sessions', () => {
+  const cat = catalogue();
+  cat.sessions = [
+    { id: 3, date: '2026-05-20', plan: { template_id: 'sprint_broken_50s' } },
+    { id: 2, date: '2026-05-18', template_id: 'sprint_descending_25s' }, // legacy shape
+    { id: 1, date: '2026-05-15', plan: {} },                            // no id → skipped
+  ];
+  assert.deepEqual(recentTemplateIdsFrom(cat), ['sprint_broken_50s', 'sprint_descending_25s']);
+});
+
+test('fallback does NOT repeat a template the athlete just swam', async () => {
+  const cat = catalogue();
+  // Force the library path, then check the chosen template isn't the recent one.
+  const first = await generateSession(cat, { forceFallback: true, date: '2026-05-22' });
+  const justUsed = first.session.template_id;
+  assert.ok(justUsed, 'fallback sessions must carry a template_id');
+  cat.sessions = [{ id: 99, date: '2026-05-22', plan: { template_id: justUsed } }];
+  const second = await generateSession(cat, { forceFallback: true, date: '2026-05-24' });
+  assert.notEqual(second.session.template_id, justUsed,
+    'the library must exclude a template used in the last few sessions');
+});
+
+test('prompt cites the last THREE same-subtype main sets, not just one', () => {
+  const cat = catalogue();
+  const mk = (id, date, shape) => ({
+    id, date, type: 'pool', subtype: 'sprint',
+    plan: { blocks: [{ name: 'Main Set', sets: [{ reps: shape[0], distance_m: shape[1], effort: 'max' }] }] },
+  });
+  cat.sessions = [
+    mk(3, '2026-05-20', [8, 25]), mk(2, '2026-05-17', [6, 50]), mk(1, '2026-05-14', [10, 25]),
+  ];
+  const decision = { type: 'pool', subtype: 'sprint', block_number: 2, session_in_block: 3, active_flags: [] };
+  const { userPrompt } = buildPrompt(decision, cat, {});
+  assert.match(userPrompt, /8×25m max/);
+  assert.match(userPrompt, /6×50m max/);
+  assert.match(userPrompt, /10×25m max/);
+  assert.match(userPrompt, /structurally DIFFERENT from ALL of them/);
 });

@@ -82,9 +82,9 @@ high confidence, no research needed.
   (2.4 s) → paced-L1 flag; reconciliation table matches a known plan+breakdown pair;
   analysis prompt contains the plan text.
 
-## 3. Workstream B — training science + creativity (Task 2, and Task 1d) → target **v30**
+## 3. Workstream B — training science + creativity (Task 2, and Task 1d) → ◐ **B0/B3/B4 shipped v30**
 
-- ☐ **B0 — Research pass (web).** Sprint-freestyle development for an adult targeting
+- ☑ **B0 — Research pass (web).** *(v30 — written into `knowledge/swimming-coaching-kb.md`)* Sprint-freestyle development for an adult targeting
   **sub-30 s 50 m in a 25 m pool**, 3 pool + 1 dryland per block. Specifically: kick
   development (**constraint: quad-cramp history — the whole system bans dolphin kick and
   ballistic wall drives; find flutter/vertical/board alternatives**), push-start and turn
@@ -92,13 +92,14 @@ high confidence, no research needed.
   rest added back), race-pace/tempo work without a tempo trainer (stroke-count-per-length
   proxies), and alactic vs lactate-tolerance programming. Write findings to
   `knowledge/` so they're reusable and never re-researched.
-- ☐ **B1 — `src/set-archetypes.js`:** a named catalogue of main-set architectures, each with
+- ☐ **B1 — `src/set-archetypes.js`:** ⬅️ **NEXT UP.** The KB now has the menu (§5, bolded
+  rows + "Rotation mandate"); this turns it into structured data the engine can track. a named catalogue of main-set architectures, each with
   `{ id, name, rep_class, structure, rest_rule, when_to_use, phase_fit, subtype_fit }`.
   This is the creative vocabulary the prompts currently lack.
 - ☐ **B2 — Wire archetypes into the generation prompt** as an explicit menu + "you used
   archetypes X, Y in this block — pick a different one."
-- ☐ **B3 — Widen `lastMainDesc` from 1 → last 3 same-subtype sessions** (kills A/B ping-pong).
-- ☐ **B4 — Fix the dead `recentTemplateIds` wiring in `web/app.js`** so the fallback library
+- ☑ **B3 — Widen `lastMainDesc` from 1 → last 3 same-subtype sessions** (kills A/B ping-pong).
+- ☑ **B4 — Fix the dead `recentTemplateIds` wiring in `web/app.js`** so the fallback library
   stops repeating templates. (One-line-ish fix, outsized payoff.)
 - ☐ **B5 — Expand `fallback-library.js`** with the new archetypes — fallback sessions must
   vary too, since that's what ships whenever Gemini fails.
@@ -132,3 +133,17 @@ rewriting them twice. A does *surgical* prompt edits; C does the full restructur
 - **Tick the boxes in this file as you go** and note the shipped version. This file is the
   cross-session memory; a stale one costs a future session a full re-diagnosis.
 - Gemini free quota ≈ one 10-session eval/day — don't burn it on casual checks.
+
+---
+
+## 6. Session log (append one line per working session)
+
+- **2026-08-26 (session 1).** Diagnosed all four Task-1 symptoms → §1 table. Shipped
+  **v29** (workstream A: plan reconciliation + L1/L2 reframe) and **v30** (B0 research into
+  the KB, B3 3-deep main-set lookback, B4 dead `recentTemplateIds` wiring fixed).
+  **Biggest single find:** the KB itself asserted "push-off is his single biggest technical
+  gap" based on the bogus L1-vs-L2 inference, and the KB is fed into BOTH prompts — so
+  fixing the flag alone would not have stopped the nagging. Added a hoisted
+  `## 0. Non-negotiables` section because the analysis prompt only receives
+  `knowledge.slice(0, 5000)` and athlete-critical rules were falling outside it.
+  **Next session: start at B1.**

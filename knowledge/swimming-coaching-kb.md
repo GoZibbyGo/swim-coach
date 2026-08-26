@@ -6,7 +6,38 @@
 
 **Equipment available (pool):** pull buoy, hand paddles, kickboard. Use them deliberately — see the equipment note in §4 and the pull/kick sets in §5. Paddles overload the catch (use moderate volume, watch shoulders); pull buoy isolates the pull and reinforces body position/DPS; kickboard isolates the kick (keep kick controlled while a quad flag is active — no max kick).
 
-*Last researched: May 2026. Citations inline as [source: URL].*
+*Last researched: May 2026; revised August 2026. Citations inline as [source: URL].*
+
+---
+
+## 0. Non-negotiables (read first — these override anything below)
+
+Hoisted to the top **deliberately**: the feedback prompt only receives the first ~5,000
+characters of this document, so anything athlete-critical must live here or it never
+reaches the analyser.
+
+1. **Never prescribe dolphin kick or ballistic/explosive wall drives.** Dolphin-kick
+   activation triggered Julian's quad cramp. Push-and-glide off the wall only, until the
+   dryland base is built. Applies to generation *and* to coaching cues in feedback.
+2. **Max/alactic reps get ≥2 min rest.** Short rest converts a speed set into an endurance
+   set, blunts the adaptation, and removes the quad protection (cramps did not recur at
+   ≥2 min).
+3. **⚠️ L1 vs L2 IS NOT A DEFECT — do not coach it as one.** In a 25m pool the first length
+   of any 50m+ rep is a **push start from a dead stop**; every later length is **turn-aided
+   and entered with velocity**. L2 being **0.5–1.2s faster than L1 is normal physics.**
+   An earlier version of this KB concluded from "L1 ~22.3s vs L2 ~19.7s" that the push-off
+   was Julian's single biggest technical gap — **that inference was wrong and it polluted
+   months of session feedback with a phantom weakness.** Never present a normal-band L1/L2
+   difference as a fault, a "gap to attack", or an action item. The engine now flags only
+   genuine anomalies (`Turn conversion:` = L2 less than 0.4s faster, so the turn truly isn't
+   paying; `Split imbalance:` = gap beyond ~1.8s). Diagnose turn quality from **those flags,
+   from breakout distance, or by comparing L2 against other turn-aided lengths** — never
+   from the bare L1-vs-L2 difference. (Turns still matter — see §3 — just not measured this way.)
+4. **SWOLF and stroke-count targets are efficiency levers, not the goal.** The 50m is a power
+   event; do not let a low-SWOLF instruction push Julian toward gliding. See §2.
+5. **Judge each session against its own stated purpose** (a technique session on technique,
+   not on threshold pace), and against the engine-computed plan-vs-actual reconciliation —
+   never against a plan reconstructed from the interval list.
 
 ---
 
@@ -21,6 +52,22 @@ The 50m free is **~65–75% anaerobic**, and at race intensity the aerobic contr
 | **Aerobic** | Oxygen | Recovery, work capacity between reps | Threshold/technique volume | 15–40s |
 
 **Key rule:** for neuromuscular *speed* work, rest is not optional — short rest converts a speed set into an endurance set and blunts the adaptation [source: https://www.yourswimlog.com/best-sets-for-50-freestyle/]. This is also Julian's quad-protective variable (cramps did not recur at ≥2 min rest).
+
+**⚠️ Programming gap identified Aug 2026 — the speed-endurance hole.** Julian's sessions are
+heavily weighted toward **alactic** work (8–12×25 max at ≥2 min rest) and **threshold** work,
+with very little in between. But *the 50m itself is a ~30–35s effort* — squarely
+**glycolytic**. Training only the alactic system builds a fast 25 that dies in the back half;
+training only threshold builds endurance he never uses. The missing middle is **speed
+endurance / lactate tolerance**: near-max 50s and 75s, and short-rest 25s, where the goal is
+holding velocity *while acidic*. Prescribe at least one such block per block-cycle from
+Phase 1 onward. Quality rule: better 6×25 at true race pace than 12 at 80%
+[source: https://www.traindaly.com/train-daly/blog/sprint-swim-workouts-build-explosive-speed].
+
+**Race-pace arithmetic (use this to make targets concrete).** Goal 30.0s for 50m in a 25m
+pool ≈ **~15.2s standing-start L1 + ~14.8s turn-aided L2**. Julian's standing-start 25m best
+is ~16.6–16.8s, so the honest gap to sub-30 is roughly **1.5s per length**. Any "race-pace
+25" prescription should name the goal-tempo split explicitly (e.g. "hold 15.2s") rather than
+a vague "fast".
 
 ---
 
@@ -51,7 +98,10 @@ The 50m free is **~65–75% anaerobic**, and at race intensity the aerobic contr
 - **Dolphin kick:** small, fast amplitude from the hip (not big knee-bend kicks → drag). Because most swimmers kick slower than they swim, take the *minimum* kicks to the breakout — typically **2 off a turn, 3 off a start** [source: https://theraceclub.com/aqua_note/freestyle-flip-turn-streamline-dolphin-kick-dolphin-kick-technique-number-of-kicks/].
 - **Breakout:** start the first pull just before the head surfaces; don't stall the transition.
 - Realistic adaptation after 4–6 weeks of focused work: breakout distance **+0.5–1m**, turn splits **−0.1–0.2s** [source: https://athletesuntapped.com/blog/the-fifth-stroke-mastering-underwater-phase-optimization-in-swimming/].
-- **⚠️ Julian-specific:** dolphin-kick activation triggered his quad cramp. Until dryland builds quad/hip-flexor base, prescribe **push-and-glide off the wall, no dolphin kick**. His measured first-length-after-wall gap (L1 ~22.3s vs L2 ~19.7s) confirms push-off is his single biggest technical gap — so this matters, but must be developed via controlled loading, not ballistic work yet.
+- **Turns are worth real time in short course:** the turn accounts for roughly **20–30% of total race time in a 25m pool** [source: https://swimlikeafish.org/all-about-turns-how-to-transition-faster-in-every-stroke/]. A 50m in a 25m pool contains exactly one turn, so turn quality is a genuine lever — but see the measurement warning below for how *not* to diagnose it.
+- **Breakout mechanics that actually cost time:** rotate onto the front *during* the push-off rather than waiting for full leg extension; keep the hands together in streamline until the first pull begins (separating the arms early adds frontal drag); pull straight back under the body, not out to the side [source: https://swimswam.com/freestyle-flip-turn-breakout-matters/].
+- **⚠️ Julian-specific:** dolphin-kick activation triggered his quad cramp. Until dryland builds quad/hip-flexor base, prescribe **push-and-glide off the wall, no dolphin kick**, and no ballistic/explosive wall drives.
+- **⚠️ MEASUREMENT WARNING — do not repeat this mistake.** An earlier version of this KB concluded from "L1 ~22.3s vs L2 ~19.7s" that the push-off was Julian's single biggest technical gap. **That inference was wrong and it polluted months of session feedback.** In a 25m pool, L1 of any 50m+ rep is a **push start from a dead stop**, while L2 is **turn-aided and entered with velocity** — L2 being **0.5–1.2s faster is normal physics, not a defect**. Never present a normal-band L1/L2 difference as a weakness or an action item. The engine now enforces this: it emits a flag ONLY when the gap is anomalous (`Turn conversion:` when L2 is <0.4s faster, i.e. the turn genuinely isn't paying; `Split imbalance:` when it exceeds ~1.8s). **Diagnose turn quality from those flags, from breakout distance, or from L2 compared against other turn-aided lengths — never from the bare L1-vs-L2 difference.**
 
 ---
 
@@ -113,8 +163,42 @@ Volumes assume a 25m pool. W:R = work-to-rest ratio.
 | 4×50 pull build (buoy) | Catch feel, body position | 20s | 1,2 | 200m |
 | 8×50 kick (board) | Leg fitness, ankle flexibility (⚠️ controlled while quad flagged) | 20s | 1,2 | 400m |
 | 6×25 paddle sprint | Power overload (⚠️ shoulder, low volume) | ≥2:00 | 2 | 150m |
+| **Race-pace 25s at goal tempo** (e.g. 8×25 holding 15.2s) | Teaches the *actual* speed of a sub-30 50 | ≥2:00 | 1,2,3 | 200m |
+| **Broken 50s ×4 (25 + 10s + 25)** | Race-pace speed at race distance, sub-goal splits | full between | 1,2,3 | 200m |
+| **Descending ladder 100-75-50-25** | Speed-endurance → speed bridge; descend time each step | 45–90s | 1,2 | 250m |
+| **Sprint pyramid 25-50-75-100-75-50-25** | Full speed-endurance sweep | full on the ≥50s | 2 | 400m |
+| **SPL-locked descending 4×50** | Hold stroke count, descend time — DPS under speed | 60s | 1,2 | 200m |
+| **Gear-change 6×50 (25 build / 25 max)** | Coordination + shifting into top gear | 90s | 1,2 | 300m |
+| **8×50 speed-endurance @ 1:4 W:R** | The missing middle — lactate tolerance | ~2:00 | 1,2 | 400m |
+| **Turn-focus 8×25 (3-strokes-and-flip)** | Turn entry + breakout, away from the wall | 20–30s | all | 200m |
+| **6×(15m into wall + turn + 15m out)** | Isolates the highest-value part of a SC 50 | 60s | 2,3 | ~180m |
+| **Vertical kick 6×30s** | Leg drive, hip-driven flutter (⚠️ see quad note) | 15–30s | 1,2 | — |
+| **6×50 kick (board), controlled** | Leg fitness without ballistic loading | 20–30s | 1,2 | 300m |
 
 **Phase-1 mandate:** ≥2 sprint blocks/week, each with ≥8×25 max at ≥2 min rest.
+
+**Rotation mandate (added Aug 2026).** The main-set *architecture* must rotate across a
+block — repeating "8×25 max" every sprint session is the single most common staleness
+failure. Treat the bolded rows above as an **archetype menu** and pick one that differs from
+the last three same-subtype sessions. Variety in architecture is not decoration: each
+archetype trains a different point on the speed↔speed-endurance curve.
+
+**Kick work (newly prioritised).** The kick contributes roughly **30% of propulsive force in
+all-out swimming**, and kick power correlates directly with 50m freestyle performance
+[source: https://www.yourswimlog.com/freestyle-kick/]. Julian's programme has had
+essentially **no kick work** — a real gap. Flutter kick is **hip-driven, small and fast**
+(not knee-driven) [source: https://www.usms.org/fitness-and-training/guides/freestyle/kick].
+**⚠️ Quad protocol:** flutter kick is permitted and encouraged; **dolphin kick remains
+banned**. Introduce progressively (start ~200m of controlled board kick per session), always
+paired with the cue *"stop immediately at any quad tightness."* Vertical kicking is potent
+but quad-intensive — hold it back until several sessions of board kick pass symptom-free.
+
+**Upper-body power is the strongest single determinant of 50m freestyle time**, explaining
+most of the variance in sprint performance
+[source: https://www.frontiersin.org/journals/sports-and-active-living/articles/10.3389/fspor.2025.1751687/full].
+This is the strongest available justification for the dryland pulling-strength work — it is
+not accessory, it is primary. Bias dryland toward **explosive pulling** (pull-ups, rows,
+lat-pullover work) over general conditioning.
 
 **Equipment-use notes.** Pull sets (buoy ± paddles) are excellent for loading the catch and reinforcing DPS without leg involvement — useful while protecting the quad. Paddles overload force per stroke; cap paddle volume and watch the shoulders (lat-pullover history). Kick sets build leg fitness but keep them controlled (no max kick) while a quad flag is active.
 
