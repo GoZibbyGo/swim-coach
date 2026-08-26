@@ -110,6 +110,20 @@ function daysBetween(isoA, isoB) {
  * This replaced a plain "exclude the last 2" rule, which forced every subtype to
  * appear equally often (threshold as frequent as sprint).
  */
+// Pool subtypes already logged within the current block — used to enforce the
+// per-block sprint minimum (Phase 1) and to avoid 2× same-subtype in one
+// block. Empty when the current block hasn't started yet.
+function poolSubtypesInCurrentBlock(catalogue) {
+  const currentBlock = catalogue?.weekly_block_tracking?.current_block_number;
+  if (currentBlock == null) return [];
+  return (catalogue?.sessions ?? [])
+    .filter(s => s?.type === 'pool' && s?.block_number === currentBlock && s?.subtype)
+    .map(s => s.subtype);
+}
+
+const POOL_SESSIONS_PER_BLOCK = 3;
+const PHASE_1_SPRINT_MINIMUM = 2;
+
 function pickPoolSubtype(catalogue, phaseNumber, override = null) {
   const priority = resolvePhasePriority(phaseNumber);
   const window = recentSubtypes(catalogue, 'pool', priority.length * 2); // sliding window
@@ -125,15 +139,40 @@ function pickPoolSubtype(catalogue, phaseNumber, override = null) {
     };
   }
 
+  const inBlock = poolSubtypesInCurrentBlock(catalogue);
+  const remainingSlots = Math.max(0, POOL_SESSIONS_PER_BLOCK - inBlock.length);
+
+  // Round-5: Phase-1 sprint minimum. Block 5 ran technique/dryland/sprint/
+  // technique — 1 sprint in a Sprint > Technique > Threshold phase. Force
+  // sprint on any remaining slot when the block would otherwise close short.
+  if (phaseNumber === 1) {
+    const sprintsInBlock = inBlock.filter(s => s === 'sprint').length;
+    const sprintsNeeded = Math.max(0, PHASE_1_SPRINT_MINIMUM - sprintsInBlock);
+    if (sprintsNeeded >= remainingSlots && remainingSlots > 0) {
+      return {
+        subtype: 'sprint',
+        reason: `Phase-1 sprint minimum: ${sprintsInBlock}/${PHASE_1_SPRINT_MINIMUM} sprints in this block, only ${remainingSlots} pool slot(s) left — must pick sprint.`,
+        anti_repetition_warning: last1 === 'sprint'
+          ? `Back-to-back sprint sessions (unavoidable to hit the ${PHASE_1_SPRINT_MINIMUM}-sprint block minimum).`
+          : null,
+      };
+    }
+  }
+
+  // Round-5: don't repeat a non-sprint subtype within a block. Two technique
+  // sessions in one block (as in Block 5) is off-priority for a sprint-first
+  // phase. Sprint is exempt — it's allowed and encouraged to repeat.
+  const inBlockNonSprint = new Set(inBlock.filter(s => s !== 'sprint'));
+  const priorityFiltered = priority.filter(s => s === 'sprint' || !inBlockNonSprint.has(s));
+  const effectivePriority = priorityFiltered.length ? priorityFiltered : priority;
+
   const weight = {};
-  priority.forEach((s, i) => { weight[s] = priority.length - i; }); // sprint=3, technique=2, threshold=1
+  effectivePriority.forEach((s, i) => { weight[s] = effectivePriority.length - i; });
   const count = {};
   for (const s of window) count[s] = (count[s] ?? 0) + 1;
 
-  // Candidates: phase subtypes except the immediately previous one. (If the
-  // phase defines only one subtype, allow the repeat.)
-  const candidates = priority.filter(s => s !== last1);
-  const pool = candidates.length ? candidates : priority;
+  const candidates = effectivePriority.filter(s => s !== last1);
+  const pool = candidates.length ? candidates : effectivePriority;
 
   let best = pool[0];
   let bestScore = -Infinity;
@@ -141,9 +180,12 @@ function pickPoolSubtype(catalogue, phaseNumber, override = null) {
     const score = weight[s] / ((count[s] ?? 0) + 1);
     if (score > bestScore) { bestScore = score; best = s; }
   }
+  const noRepeatNote = priorityFiltered.length < priority.length
+    ? ` (excluding non-sprint subtypes already used in this block: ${[...inBlockNonSprint].join(', ')})`
+    : '';
   return {
     subtype: best,
-    reason: `Phase ${phaseNumber} priority-weighted pick (favours ${priority[0]}), not repeating the previous session${window.length ? ` (recent: ${window.slice(0, 3).join(', ')})` : ''}.`,
+    reason: `Phase ${phaseNumber} priority-weighted pick (favours ${priority[0]}), not repeating the previous session${window.length ? ` (recent: ${window.slice(0, 3).join(', ')})` : ''}${noRepeatNote}.`,
     anti_repetition_warning: best === last1 ? `Repeats subtype "${best}" (only one subtype available this phase).` : null,
   };
 }

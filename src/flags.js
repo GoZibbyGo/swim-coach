@@ -38,16 +38,36 @@ function round1(n) {
   return n == null ? null : Math.round(n * 10) / 10;
 }
 
-// Single-length max-effort reps (sprint protocol): one freestyle length,
-// fast, not a drill.
+// Single-length MAX-EFFORT reps (sprint protocol): one freestyle length,
+// fast, not a drill. Round-5 refinement: gate on INTENSITY, not just rest.
+// Rest alone is a bad classifier — the pre-existing "16.8s reps at 60s rest"
+// is exactly the max-effort/under-rested case we WANT to flag; but 20s reps
+// at 60s rest are speed-technique, not max_alactic, and must be excluded.
+//
+// Discriminator: use the session's fastest single-length freestyle rep as the
+// intra-session anchor. If it's ≤17.0s (near the Phase-1 best_25m range),
+// treat this as a max-alactic set and include every rep within 1.5s of the
+// anchor. If the fastest rep is >17.0s, the whole set is sub-max — no rep is
+// max_alactic, and quality-check flags (fade / spread / rest) don't apply.
+// Fallback: if no fast rep exists, no reps qualify.
+const MAX_ALACTIC_TIME_CAP_S = 17.0;   // absolute intensity ceiling
 function sprintReps(intervals) {
-  return intervals.filter(i =>
+  const candidates = intervals.filter(i =>
     !i.is_rest &&
     !isDrillInterval(i) &&
     i.lengths.length === 1 &&
     i.lengths[0]?.is_freestyle &&
     i.time_s != null && i.time_s <= 20
   );
+  if (!candidates.length) return [];
+  // Anchor on the FASTEST single-length freestyle rep in the session. If even
+  // the fastest is >17s, the whole set is sub-max (speed-technique / build) —
+  // no rep is max_alactic, so the quality-check flags (fade / spread / rest)
+  // don't apply. Otherwise keep every candidate: a slow rep INSIDE a max set
+  // is the fade we want to surface.
+  const anchor = Math.min(...candidates.map(c => c.time_s));
+  if (anchor > MAX_ALACTIC_TIME_CAP_S) return [];
+  return candidates;
 }
 
 // 50m reps for first-length-gap analysis: exactly two freestyle, non-drill
@@ -62,30 +82,88 @@ function fiftyReps(intervals) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// Plan tags — map each ACTUAL interval to the plan block it fell inside, so
+// downstream flag detection knows which reps were pull-buoy / paddles / drill
+// (and therefore not PR-eligible). Greedy walk: for each plan block, consume
+// actual intervals up to that block's volume, tag each with the block's
+// equipment / rep_class.
+// ──────────────────────────────────────────────────────────────────────────
+
+export function buildPlanTags(plan, breakdown) {
+  const tags = new Map();
+  if (!plan || !Array.isArray(plan.blocks) || !Array.isArray(breakdown) || !breakdown.length) return tags;
+  let idx = 0;
+  for (const block of plan.blocks) {
+    const sets = Array.isArray(block.sets) ? block.sets : [];
+    // Use the first non-null equipment / rep_class in the block's sets — if
+    // the block has heterogeneous sets, this is a best-effort tag.
+    const equipment = sets.find(x => x && x.equipment)?.equipment ?? null;
+    const repClass = sets.find(x => x && x.rep_class)?.rep_class ?? null;
+    const blockVol = sets.reduce((t, x) => t + (Number(x?.reps) || 1) * (Number(x?.distance_m) || 0), 0)
+      || Number(block.volume_m) || 0;
+    if (blockVol === 0 || idx >= breakdown.length) continue;
+    let consumed = 0;
+    while (idx < breakdown.length && consumed < blockVol * 0.9) {
+      const iv = breakdown[idx];
+      tags.set(iv.n, { equipment, rep_class: repClass, block_name: block.name ?? null });
+      consumed += Number(iv.distance_m) || 0;
+      idx++;
+    }
+  }
+  return tags;
+}
+
+// Given a "INT 33.1" or "INT 22" style context and a Map of plan tags,
+// return true if the referenced interval was in an equipment-assisted block.
+function contextIsAssisted(context, planTags) {
+  if (!(planTags instanceof Map) || !planTags.size) return false;
+  if (typeof context !== 'string') return false;
+  const m = context.match(/INT\s+(\d+)/i);
+  if (!m) return false;
+  const tag = planTags.get(Number(m[1]));
+  return tag != null && tag.equipment != null;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // Record detection (PRs)
 // ──────────────────────────────────────────────────────────────────────────
 
-export function detectRecords(parsed, rollingBests = {}) {
+export function detectRecords(parsed, rollingBests = {}, opts = {}) {
   const flags = [];
   const newRecords = {};
   const s = parsed.summary ?? {};
+  // Round-5 feedback: never write an equipment-assisted rep into rolling bests
+  // (a 4×100 pull-buoy set wrote 88.8s into best_100m_split_s in Session 32,
+  // permanently superseding the previous unassisted 89.9s). If the plan is
+  // present and the best's context sits inside an equipment block, skip the
+  // PR write and add a note.
+  const planTags = opts.planTags instanceof Map ? opts.planTags : new Map();
+  const assistedNote = (context, planTagsMap) => {
+    const m = String(context ?? '').match(/INT\s+(\d+)/i);
+    if (!m) return '(assisted rep — equipment noted in plan)';
+    const tag = planTagsMap.get(Number(m[1]));
+    const eq = tag?.equipment ? ` — ${tag.equipment}` : '';
+    return `(assisted rep${eq}; not written to rolling bests)`;
+  };
 
   // ── Best 25m ──
-  // Compare against the sprint-protocol best first (clean sprint conditions),
-  // then the raw all-time best. Lower is better.
   const best25 = s.best_25m_split_s;
   if (best25 != null) {
     const protoBest = rollingBests.best_25m_sprint_protocol_s;
     const rawBest = rollingBests.best_25m_split_s;
-    if (protoBest == null || best25 < protoBest) {
-      flags.push(`NEW SPRINT PROTOCOL BEST: ${best25}s (${s.best_25m_context ?? 'clean sprint'})${protoBest != null ? ` — previous ${protoBest}s` : ''}.`);
-      newRecords.best_25m_sprint_protocol_s = best25;
-    } else if (best25 === protoBest) {
-      flags.push(`Sprint protocol best matched: ${best25}s (${s.best_25m_context ?? ''}).`);
-    }
-    if (rawBest == null || best25 < rawBest) {
-      flags.push(`NEW 25M BEST (raw): ${best25}s — previous ${rawBest ?? 'n/a'}s.`);
-      newRecords.best_25m_split_s = best25;
+    if (contextIsAssisted(s.best_25m_context, planTags)) {
+      flags.push(`Fast 25m NOT written as PR ${assistedNote(s.best_25m_context, planTags)}: ${best25}s.`);
+    } else {
+      if (protoBest == null || best25 < protoBest) {
+        flags.push(`NEW SPRINT PROTOCOL BEST: ${best25}s (${s.best_25m_context ?? 'clean sprint'})${protoBest != null ? ` — previous ${protoBest}s` : ''}.`);
+        newRecords.best_25m_sprint_protocol_s = best25;
+      } else if (best25 === protoBest) {
+        flags.push(`Sprint protocol best matched: ${best25}s (${s.best_25m_context ?? ''}).`);
+      }
+      if (rawBest == null || best25 < rawBest) {
+        flags.push(`NEW 25M BEST (raw): ${best25}s — previous ${rawBest ?? 'n/a'}s.`);
+        newRecords.best_25m_split_s = best25;
+      }
     }
   }
 
@@ -93,7 +171,9 @@ export function detectRecords(parsed, rollingBests = {}) {
   const best50 = s.best_50m_split_s;
   if (best50 != null) {
     const prev50 = rollingBests.best_50m_equiv_s;
-    if (prev50 == null || best50 < prev50) {
+    if (contextIsAssisted(s.best_50m_context, planTags)) {
+      flags.push(`Fast 50m NOT written as PR ${assistedNote(s.best_50m_context, planTags)}: ${best50}s.`);
+    } else if (prev50 == null || best50 < prev50) {
       flags.push(`NEW 50M BEST: ${best50}s${prev50 != null ? ` — previous ${prev50}s` : ''} (${s.best_50m_context ?? 'fastest 50m rep'}).`);
       newRecords.best_50m_equiv_s = best50;
     }
@@ -103,7 +183,9 @@ export function detectRecords(parsed, rollingBests = {}) {
   const best100 = s.best_100m_split_s;
   if (best100 != null) {
     const prev100 = rollingBests.best_100m_split_s;
-    if (prev100 == null || best100 < prev100) {
+    if (contextIsAssisted(s.best_100m_context, planTags)) {
+      flags.push(`Fast 100m NOT written as PR ${assistedNote(s.best_100m_context, planTags)}: ${best100}s.`);
+    } else if (prev100 == null || best100 < prev100) {
       flags.push(`NEW 100M BEST: ${best100}s${prev100 != null ? ` — previous ${prev100}s` : ''} (${s.best_100m_context ?? 'fastest 100m rep'}).`);
       newRecords.best_100m_split_s = best100;
     }
@@ -171,8 +253,14 @@ export function detectTechnical(parsed, opts = {}) {
   // and any velocity fade is likely CO2/nausea driven (not a training-design
   // problem). Both were false-positived in Session 27; the mapper already
   // classifies these — the flag layer just needs to honour it.
-  const cutShort = Array.isArray(opts.signals?.matched)
-    && opts.signals.matched.some(m => m.id === 'cut_short' || m.id === 'terminated_injury');
+  // Round-5: an explicit "watch fell off / tracking stopped" note OR an
+  // explicit "I completed the full session" note override any cut_short —
+  // the swim happened, the DATA is truncated. Don't fire fade / rest-too-
+  // short from a tracking artefact.
+  const matchedIds = new Set((opts.signals?.matched ?? []).map(m => m.id));
+  const trackingDropout = matchedIds.has('tracking_dropout') || matchedIds.has('session_completed_explicit');
+  const cutShort = !trackingDropout
+    && (matchedIds.has('cut_short') || matchedIds.has('terminated_injury'));
 
   // ── Stroke drift: first third vs last third of freestyle, non-drill lengths.
   const effortLengths = lengths.filter(l => l.is_freestyle && !l.is_drill && l.strokes != null && l.strokes > 0);
@@ -241,12 +329,21 @@ export function detectTechnical(parsed, opts = {}) {
     }
     // Rest adherence — alactic quality and (for Julian) quad protection. When
     // the session was cut short, the final rep's rest_after_s is the session-
-    // end tail, not a prescription failure — drop it from the check.
+    // end tail, not a prescription failure — drop it from the check. 10%
+    // tolerance band: flag only if rest < 120×0.9 = 108s (a rep at 117s vs
+    // 120s prescribed is a rounding-tier difference, not a safety violation).
+    const SPRINT_REST_MIN_S = 120;
+    const REST_FLAG_TOLERANCE = 0.9;
     const restReps = cutShort ? reps.slice(0, -1) : reps;
-    const shortRest = restReps.filter(r => r.rest_after_s != null && r.rest_after_s < 120);
+    const shortRest = restReps.filter(r => r.rest_after_s != null && r.rest_after_s < SPRINT_REST_MIN_S * REST_FLAG_TOLERANCE);
     if (shortRest.length) {
-      const detail = shortRest.map(r => `INT ${r.interval_number} (${Math.round(r.rest_after_s)}s)`).join(', ');
-      flags.push(`Sprint rest too short on ${shortRest.length} rep(s): ${detail} — max efforts need ≥120s. Short rest blunts speed adaptation and removes quad protection.`);
+      // Explicit dedup by interval_number in case the same rep appears twice
+      // in any earlier filter step (round-5 feedback: INT 12 shown, INT 8 with
+      // an identical rest value not — this makes the list order-stable).
+      const seen = new Set();
+      const unique = shortRest.filter(r => (seen.has(r.interval_number) ? false : (seen.add(r.interval_number), true)));
+      const detail = unique.map(r => `INT ${r.interval_number} (${Math.round(r.rest_after_s)}s)`).join(', ');
+      flags.push(`Sprint rest too short on ${unique.length} rep(s): ${detail} — max efforts need ≥${SPRINT_REST_MIN_S}s. Short rest blunts speed adaptation and removes quad protection.`);
     }
   }
 
@@ -276,7 +373,7 @@ export function detectTechnical(parsed, opts = {}) {
  */
 export function detectFlags(parsed, catalogue, opts = {}) {
   const rollingBests = catalogue?.rolling_bests ?? {};
-  const rec = detectRecords(parsed, rollingBests);
+  const rec = detectRecords(parsed, rollingBests, opts);
   const tech = detectTechnical(parsed, opts);
   return {
     flags: [...rec.flags, ...tech.flags],
@@ -292,23 +389,82 @@ export function detectFlags(parsed, catalogue, opts = {}) {
 // count is way higher than its peers (e.g. "10 / 18 / 10") is almost always
 // a fat-fingered "18" instead of "10". Flag it before it enters the rolling
 // baseline. Conservative: requires both a 1.5× ratio AND ≥5 absolute reps,
-// and at least 3 sets to compare against.
-export function detectDrylandIssues(dryland) {
+// and at least 3 sets to compare against. Round-5: also compares each
+// exercise against a stored baseline (in `dryland_baselines`) and emits PR /
+// regression flags — the analyser previously ignored dryland performance
+// entirely.
+export function detectDrylandIssues(dryland, baselines = null) {
   const flags = [];
   if (!dryland || !Array.isArray(dryland.exercises)) return flags;
   for (const ex of dryland.exercises) {
+    const name = ex.name ?? '(unnamed)';
     const reps = Array.isArray(ex.reps_per_set)
       ? ex.reps_per_set.filter(n => typeof n === 'number' && n > 0)
       : [];
-    if (reps.length < 3) continue;
-    const sorted = [...reps].sort((a, b) => a - b);
-    const median = sorted[Math.floor(sorted.length / 2)];
-    const max = Math.max(...reps);
-    if (max > median * 1.5 && max - median >= 5) {
-      flags.push(`Dryland data check: ${ex.name ?? '(unnamed)'} has a high outlier (${max} vs median ${median} across ${reps.length} sets) — likely a logging typo.`);
+    const holds = Array.isArray(ex.duration_s_per_set)
+      ? ex.duration_s_per_set.filter(n => typeof n === 'number' && n > 0)
+      : [];
+    // Outlier / likely-typo check (existing behaviour).
+    if (reps.length >= 3) {
+      const sorted = [...reps].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      const max = Math.max(...reps);
+      if (max > median * 1.5 && max - median >= 5) {
+        flags.push(`Dryland data check: ${name} has a high outlier (${max} vs median ${median} across ${reps.length} sets) — likely a logging typo.`);
+      }
+    }
+    // Baseline compare (round-5). Match by canonical name; a hollow-body-hold
+    // baseline is compared to any exercise whose name includes "hollow body".
+    if (baselines && (reps.length || holds.length)) {
+      const cmp = compareToBaseline(name, reps, holds, baselines);
+      if (cmp) flags.push(cmp);
+    }
+  }
+  // Round-5: surface unestablished carry-forward items so they don't stay
+  // "NOT YET ESTABLISHED" from session to session (bar-hang external rotation
+  // was carried unaddressed from Session 18 to Session 30).
+  if (baselines) {
+    for (const [key, value] of Object.entries(baselines)) {
+      if (typeof value === 'string' && /NOT YET ESTABLISHED/i.test(value)) {
+        flags.push(`Dryland carry-forward: ${key.replace(/_/g, ' ')} still marked "NOT YET ESTABLISHED" — programme it in the next dryland.`);
+      }
     }
   }
   return flags;
+}
+
+// Compare a single logged exercise to its stored baseline. Returns a PR /
+// regression flag string or null. Matches by fuzzy name — the baseline keys
+// look like `pull_ups_best_set` / `hollow_body_hold_s` while the logged names
+// are "Pull-Ups", "Hollow Body Hold". Only handles a few known families for
+// now; unknown exercises return null (no flag, no false positive).
+function compareToBaseline(name, reps, holds, baselines) {
+  const n = String(name).toLowerCase();
+  const best = reps.length ? Math.max(...reps) : null;
+  const total = reps.length ? reps.reduce((s, x) => s + x, 0) : null;
+  const bestHold = holds.length ? Math.max(...holds) : null;
+  if (/hollow[- ]?body|hollow rocks/.test(n) && bestHold != null) {
+    const base = Number(baselines.hollow_body_hold_s);
+    if (Number.isFinite(base) && bestHold > base) return `Dryland PR: ${name} — best hold ${bestHold}s beats stored baseline ${base}s.`;
+    if (Number.isFinite(base) && bestHold < base * 0.7) return `Dryland regression: ${name} — best hold ${bestHold}s vs baseline ${base}s. Investigate conditions.`;
+  }
+  if (/pull[- ]?ups?/.test(n) && best != null) {
+    const base = Number(baselines.pull_ups_best_set);
+    if (Number.isFinite(base) && best > base) return `Dryland PR: ${name} — best set ${best} reps beats stored baseline ${base}.`;
+  }
+  if (/dips?/.test(n) && best != null) {
+    const base = Number(baselines.dips_best_set);
+    if (Number.isFinite(base) && best > base) return `Dryland PR: ${name} — best set ${best} reps beats stored baseline ${base}.`;
+  }
+  if (/v[- ]?ups?/.test(n) && total != null) {
+    const base = Number(baselines.v_ups_total_3_sets_session18) ?? Number(baselines.v_ups_total_3_sets_session14);
+    if (Number.isFinite(base) && total > base) return `Dryland PR: ${name} — total ${total} reps beats stored baseline ${base}.`;
+  }
+  if (/dead[- ]?hang/.test(n) && bestHold != null) {
+    const base = Number(baselines.dead_hang_duration_s);
+    if (Number.isFinite(base) && bestHold > base) return `Dryland PR: ${name} — best hold ${bestHold}s beats stored baseline ${base}s.`;
+  }
+  return null;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -320,27 +476,49 @@ export function detectDrylandIssues(dryland) {
 // mismatches (catches the "swapped cool-down to 4×50" pattern). Heuristic:
 // walks the plan's blocks in order, greedily consumes actual intervals up to
 // each block's volume, and compares counts × distance.
-export function detectPlanDeviations(plan, breakdown) {
+export function detectPlanDeviations(plan, breakdown, opts = {}) {
   const flags = [];
   if (!plan || !Array.isArray(plan.blocks) || !Array.isArray(breakdown) || !breakdown.length) return flags;
+
+  // Round-5: skip the volume-deviation flag when the athlete's note indicates
+  // a tracking dropout — the shortfall is untracked reps, not skipped ones.
+  const matchedIds = new Set((opts.signals?.matched ?? []).map(m => m.id));
+  const trackingDropout = matchedIds.has('tracking_dropout') || matchedIds.has('session_completed_explicit');
+  // Also treat a mid-session rest gap of >300s as a heuristic tracking dropout,
+  // since a proper cool-down doesn't produce a 5-minute gap between reps.
+  const midSessionGap = breakdown.slice(0, -1).some(b => Number(b.rest_after_s) > 300);
+  const skipVolumeCheck = trackingDropout || midSessionGap;
 
   const plannedVol = plan.total_volume_m
     || plan.blocks.reduce((s, b) => s + (Number(b.volume_m) || 0), 0);
   const actualVol = breakdown.reduce((s, b) => s + (Number(b.distance_m) || 0), 0);
-  if (plannedVol > 0 && Math.abs(actualVol - plannedVol) / plannedVol > 0.10) {
+  if (!skipVolumeCheck && plannedVol > 0 && Math.abs(actualVol - plannedVol) / plannedVol > 0.10) {
     const diff = actualVol - plannedVol;
     flags.push(`Plan deviation: total volume ${actualVol}m vs prescribed ${plannedVol}m (${diff > 0 ? '+' : '−'}${Math.abs(diff)}m).`);
   }
+  if (skipVolumeCheck && plannedVol > 0 && actualVol < plannedVol) {
+    const gap = plannedVol - actualVol;
+    flags.push(`Data quality: tracking dropout — ${gap}m of the prescribed session appears untracked (not a compliance issue; athlete note / mid-session rest gap indicates a tracking gap).`);
+  }
 
-  // Per-block walk.
+  // Per-block walk. Round-5 fix: skip per-block deviation on MIXED-distance
+  // blocks — rendering "prescribed 12×100m" against a 4×100+4×50+4×25 warm-up
+  // was a repeat false-positive. We only compare like-for-like blocks; the
+  // total-volume check above still catches gross deviations.
   let idx = 0;
   for (const block of plan.blocks) {
     const sets = Array.isArray(block.sets) ? block.sets : [];
-    const expectedReps = sets.reduce((s, x) => s + (Number(x.reps) || 1), 0);
-    const expectedDist = sets.find(x => x.distance_m != null)?.distance_m ?? null;
-    const blockVol = sets.reduce((s, x) => s + (Number(x.reps) || 1) * (Number(x.distance_m) || 0), 0)
+    const distanceSet = new Set(sets.map(x => Number(x?.distance_m)).filter(x => Number.isFinite(x) && x > 0));
+    const expectedReps = sets.reduce((s, x) => s + (Number(x?.reps) || 1), 0);
+    const expectedDist = distanceSet.size === 1 ? [...distanceSet][0] : null;
+    const blockVol = sets.reduce((s, x) => s + (Number(x?.reps) || 1) * (Number(x?.distance_m) || 0), 0)
       || Number(block.volume_m) || 0;
-    if (!expectedReps || !expectedDist || blockVol === 0 || idx >= breakdown.length) continue;
+    if (!expectedReps || !expectedDist || blockVol === 0 || idx >= breakdown.length) {
+      // Advance idx past this block's volume anyway so subsequent blocks align.
+      let consumed = 0;
+      while (idx < breakdown.length && consumed < blockVol * 0.9) { consumed += Number(breakdown[idx].distance_m) || 0; idx++; }
+      continue;
+    }
     let consumed = 0;
     let count = 0;
     let firstDist = null;

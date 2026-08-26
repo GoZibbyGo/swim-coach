@@ -4,7 +4,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { detectFlags, detectRecords, detectTechnical, detectDrylandIssues, detectPlanDeviations } from '../src/flags.js';
+import { detectFlags, detectRecords, detectTechnical, detectDrylandIssues, detectPlanDeviations, buildPlanTags } from '../src/flags.js';
 import { parseGarminCsv } from '../src/garmin-parser.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -205,6 +205,30 @@ const realCatPath = join(__dirname, '..', '..', 'Swimming Coach_code', 'athlete_
 // ──────────────────────────────────────────────────────────────────────────
 // Dryland data-quality (round-3 feedback: catch obvious logging typos)
 
+test('speed-technique set (25s reps at 60s rest) is NOT flagged as under-rested max effort', () => {
+  // Session-29-shaped input: 12×25m at ~20s per rep, 60s rest — RPE 8 speed
+  // technique, NOT max_alactic. Under round-5 sprintReps, 60s rest fails the
+  // ≥90s alactic-rest gate, so these reps aren't in the max-effort pool and
+  // don't trigger a rest-too-short flag.
+  const reps = Array.from({ length: 12 }, (_, i) => sprintRep(i + 1, 19.5, 26, 8, 60));
+  const p = parsed({ intervals: reps, summary: {} });
+  const r = detectFlags(p, { rolling_bests: {} });
+  assert.ok(!r.flags.some(f => /Sprint rest too short/.test(f)),
+    `speed-technique set should not fire the sprint-rest safety flag, got: ${JSON.stringify(r.flags)}`);
+});
+
+test('rest-tolerance band: 117s is not flagged against 120s min (within 10%)', () => {
+  const reps = [
+    sprintRep(1, 16.5, 22, 7, 130), // has ≥90s rest → in sprintReps
+    sprintRep(2, 16.6, 22, 7, 117), // ≥90s → in pool; 117s < 120 but ≥ 108 → NOT flagged
+    sprintRep(3, 16.4, 22, 7, 130),
+  ];
+  const p = parsed({ intervals: reps, summary: {} });
+  const r = detectFlags(p, { rolling_bests: {} });
+  assert.ok(!r.flags.some(f => /Sprint rest too short/.test(f)),
+    `117s vs 120s min should be inside the 10% tolerance, got: ${JSON.stringify(r.flags)}`);
+});
+
 test('cut_short signal suppresses the trailing rep from the sprint-rest check', () => {
   // 4 sprint reps: first three have 130s rest (ok), the last has 15s rest
   // (short) — because the session was cut short and there was no next rep.
@@ -240,6 +264,66 @@ test('cut_short signal also suppresses velocity fade (athlete already explained)
     signals: { matched: [{ id: 'cut_short' }] },
   });
   assert.ok(!withCutShort.flags.some(f => /Velocity fade/.test(f)));
+});
+
+test('PR gating: a fast 100m rep in a "Pull" block is NOT written as a PR', () => {
+  // Session 32 pattern: 4×100 pull-buoy 100m at 88.8s — must not supersede
+  // best_100m_split_s. Plan tags mark the block equipment as "pull buoy".
+  const plan = {
+    total_volume_m: 400,
+    blocks: [
+      { name: 'Pull set', sets: [{ reps: 4, distance_m: 100, effort: 'moderate', rest_s: 20, equipment: 'pull buoy' }] },
+    ],
+  };
+  const breakdown = [
+    { n: 1, distance_m: 100, time_s: 88.8 },
+    { n: 2, distance_m: 100, time_s: 90 },
+    { n: 3, distance_m: 100, time_s: 91 },
+    { n: 4, distance_m: 100, time_s: 92 },
+  ];
+  const tags = buildPlanTags(plan, breakdown);
+  assert.equal(tags.get(1).equipment, 'pull buoy', 'INT 1 must be tagged as pull-buoy assisted');
+  // Now simulate detectRecords with the plan tags.
+  const p = parsed({ summary: { best_100m_split_s: 88.8, best_100m_context: 'INT 1' } });
+  const cat = { rolling_bests: { best_100m_split_s: 92.0 } };
+  const r = detectFlags(p, cat, { planTags: tags });
+  assert.ok(!r.flags.some(f => /NEW 100M BEST/.test(f)),
+    `PR must be suppressed for assisted rep, got: ${JSON.stringify(r.flags)}`);
+  assert.ok(r.flags.some(f => /Fast 100m NOT written as PR/.test(f)),
+    `expected an "assisted rep" note, got: ${JSON.stringify(r.flags)}`);
+  assert.equal(r.new_records.best_100m_split_s, undefined,
+    'assisted rep must not enter new_records');
+});
+
+test('tracking-dropout signal suppresses volume-deviation flag', () => {
+  const plan = { total_volume_m: 2200, blocks: [{ name: 'Main', sets: [{ reps: 8, distance_m: 100 }] }] };
+  const breakdown = Array.from({ length: 8 }, (_, i) => ({ n: i + 1, distance_m: 100, time_s: 100 }));
+  // Actual volume 800m vs prescribed 2200 = huge shortfall. Without a
+  // tracking_dropout signal, this fires a volume-deviation flag. With it,
+  // it becomes a data-quality note.
+  const withoutSignal = detectPlanDeviations(plan, breakdown);
+  assert.ok(withoutSignal.some(f => /total volume/.test(f)));
+  const withDropout = detectPlanDeviations(plan, breakdown, {
+    signals: { matched: [{ id: 'tracking_dropout' }] },
+  });
+  assert.ok(!withDropout.some(f => /Plan deviation: total volume/.test(f)),
+    `dropout must suppress the volume-deviation flag, got: ${JSON.stringify(withDropout)}`);
+  assert.ok(withDropout.some(f => /Data quality: tracking dropout/.test(f)),
+    `dropout should emit a data-quality note, got: ${JSON.stringify(withDropout)}`);
+});
+
+test('mixed-distance block does NOT trigger a bogus "prescribed 12×100m" deviation', () => {
+  // Session-31 warm-up: 4×100 + 4×50 + 4×25. Was rendering as "prescribed
+  // 12×100m" against a 4×100 actual — bogus. Now skipped (heterogeneous block).
+  const plan = {
+    blocks: [{ name: 'Warm-up', sets: [
+      { reps: 4, distance_m: 100 }, { reps: 4, distance_m: 50 }, { reps: 4, distance_m: 25 },
+    ]}],
+  };
+  const breakdown = Array.from({ length: 4 }, (_, i) => ({ n: i + 1, distance_m: 100, time_s: 100 }));
+  const flags = detectPlanDeviations(plan, breakdown);
+  assert.ok(!flags.some(f => /12×100m/.test(f)),
+    `mixed-block must not render as 12×100m, got: ${JSON.stringify(flags)}`);
 });
 
 test('detectDrylandIssues flags a high outlier rep count', () => {

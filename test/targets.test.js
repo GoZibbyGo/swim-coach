@@ -54,11 +54,40 @@ test('sprint targets: beat current best, stretch -0.3s, swolf best -1', () => {
   assert.equal(t.phase_25m_target_s, 15.5);      // Phase-1 25m milestone (live from phases.js)
 });
 
-test('sprint targets: implied_50m_from_stretch reconciles 25m and 50m goals', () => {
+test('sprint targets: implied_50m_from_stretch is arithmetically possible (>2×stretch)', () => {
   const t = computeTargets(catalogue(), 'sprint');
-  // stretch 16.5 → implied 50m = 2 × 16.5 − 1.5 (turn savings) = 31.5s.
-  // No more three-way disagreement between beat/stretch/phase/50m.
-  assert.equal(t.implied_50m_from_stretch_s, 31.5);
+  // stretch 16.5 → implied 50m = 2 × 16.5 + 1.0 (turn_cost) = 34.0s.
+  // Round-5 fix: was 2×stretch − 1.5 which gave an IMPOSSIBLE 29.9 vs 31.4
+  // (a 50m can't be faster than 2 unassisted 25s at max effort).
+  assert.equal(t.implied_50m_from_stretch_s, 34.0);
+  assert.ok(t.implied_50m_from_stretch_s > 2 * t.stretch_25m_s,
+    `implied_50m must exceed 2×stretch, got ${t.implied_50m_from_stretch_s} vs ${2 * t.stretch_25m_s}`);
+});
+
+test('sprint targets: phase_goal_50m_s is a separate long-horizon field', () => {
+  const t = computeTargets(catalogue(), 'sprint');
+  assert.equal(t.phase_goal_50m_s, 33.0); // Phase-1 50m milestone
+  assert.notEqual(t.phase_goal_50m_s, t.implied_50m_from_stretch_s,
+    'phase_goal_50m_s (long-horizon) must not be conflated with today\'s implied_50m');
+});
+
+test('sprint targets: re-entry flag + de-rated anchor when last pool > 10 days ago', () => {
+  const cat = catalogue();
+  // Simulate a 20-day layoff by inserting a stale pool session as the most recent.
+  cat.sessions = [{ id: 1, date: '2026-01-01', type: 'pool', subtype: 'sprint' }];
+  const t = computeTargets(cat, 'sprint', { date: '2026-01-25' });
+  assert.equal(t.re_entry, true);
+  assert.ok(t.days_since_last_pool >= 10);
+  // Anchor de-rated from 16.8 by 2.5% → 17.2.
+  assert.ok(t.beat_25m_s > 16.8, `expected de-rated anchor > 16.8, got ${t.beat_25m_s}`);
+  assert.equal(t.pre_layoff_beat_25m_s, 16.8);
+});
+
+test('sprint targets: no re-entry when the last pool was recent', () => {
+  const cat = catalogue();
+  cat.sessions = [{ id: 1, date: '2026-01-24', type: 'pool', subtype: 'sprint' }];
+  const t = computeTargets(cat, 'sprint', { date: '2026-01-25' });
+  assert.equal(t.re_entry, false);
 });
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -139,11 +168,20 @@ if (existsSync(realPath)) {
   test('real catalogue (migrated) → sprint + threshold targets correct', () => {
     const raw = JSON.parse(readFileSync(realPath, 'utf8'));
     const cat = migrateCatalogue(raw);
-    const sprint = computeTargets(cat, 'sprint');
+    // Pin to a date within 10 days of the most recent pool session so the
+    // round-5 layoff de-rating doesn't perturb the base-target assertions.
+    // The catalogue's most-recent pool date drifts as sessions get logged;
+    // pull it from the data rather than hardcoding.
+    const mostRecentPool = (cat.sessions ?? [])
+      .filter(s => s?.type === 'pool' && s?.date)
+      .map(s => s.date)
+      .sort()
+      .pop();
+    const sprint = computeTargets(cat, 'sprint', { date: mostRecentPool });
     assert.equal(sprint.beat_25m_s, 16.8);       // current sprint protocol best
     assert.equal(sprint.stretch_25m_s, 16.5);    // stretch
     assert.equal(sprint.sprint_swolf_target, 23); // 24 - 1
-    const thresh = computeTargets(cat, 'threshold');
+    const thresh = computeTargets(cat, 'threshold', { date: mostRecentPool });
     assert.equal(thresh.main_set_pace_target, undefined); // no /100m pace target
     assert.match(thresh.effort, /RPE/);                   // effort-based instead
   });

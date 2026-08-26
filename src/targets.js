@@ -43,14 +43,14 @@ export const TARGET_STEPS = Object.freeze({
   stroke_count_target: 7,
   stroke_count_acceptable: 8,
 
-  // How much faster L2 of a 50 (flying + turn) is than a from-a-push 25.
-  // Used to derive a coherent 50m target from the 25m stretch: a swimmer who
-  // can hit `stretch_25m_s` from a standing start should hit roughly
-  // 2 × stretch_25m_s − turn_savings for a full 50m rep. Julian's L1/L2 gap
-  // across recent 50m reps clusters around 3–4s; the ~1.5s figure conservatively
-  // credits half of that to the physics of the flying-start turn (not
-  // effort/strength gains yet).
-  turn_savings_s: 1.5,
+  // Fatigue cost of adding a second 25 to a 25m stretch effort. The v26
+  // formula treated this as a NEGATIVE (savings) — that produced an implied
+  // 50m FASTER than 2×stretch, which is arithmetically impossible: even with
+  // the turn advantage, a 50m held at max effort trades some pace off L1
+  // (pacing the whole 50) so the total ≈ L1 + (L1 + turn_cost). turn_cost is
+  // a small POSITIVE fatigue debit on top of two 25s worth of work; 0.8-1.2s
+  // is the coaching range.
+  turn_cost_s: 1.0,
 });
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -80,6 +80,26 @@ function rb(catalogue) {
 
 function currentPhase(catalogue) {
   return catalogue?.training_phase?.current ?? 1;
+}
+
+// Round-5: detect a training layoff so today's targets aren't calibrated to
+// a swim from 2+ weeks ago. If the last pool session is >10 days back, mark
+// this as a re-entry and de-rate the sprint anchor by 2.5% (fair for a
+// two-week gap; the LLM prompt will frame it as a re-entry, not a PR attempt).
+const LAYOFF_THRESHOLD_DAYS = 10;
+const RE_ENTRY_DE_RATE = 0.025;
+function daysSinceLastPool(catalogue, today) {
+  const sessions = Array.isArray(catalogue?.sessions) ? catalogue.sessions : [];
+  const lastPool = sessions.find(s => s?.type === 'pool' && typeof s?.date === 'string');
+  if (!lastPool) return null;
+  const t = Date.parse(String(today));
+  const l = Date.parse(lastPool.date);
+  if (!Number.isFinite(t) || !Number.isFinite(l)) return null;
+  return Math.floor((t - l) / (1000 * 60 * 60 * 24));
+}
+function layoffContext(catalogue, todayISO) {
+  const days = daysSinceLastPool(catalogue, todayISO ?? new Date().toISOString().slice(0, 10));
+  return { days_since_last_pool: days, is_re_entry: days != null && days > LAYOFF_THRESHOLD_DAYS };
 }
 
 /**
@@ -116,11 +136,25 @@ function sprintSwolfTarget(catalogue) {
  * a sprint session's 50m reps; `phase_50m_target_s` (via race_pace) is the
  * long-horizon aspiration, not a per-session prescription.
  */
-function sprintTargets(catalogue) {
-  const anchor = rb(catalogue).best_25m_sprint_protocol_s ?? rb(catalogue).best_25m_split_s;
+function sprintTargets(catalogue, opts = {}) {
+  const rawAnchor = rb(catalogue).best_25m_sprint_protocol_s ?? rb(catalogue).best_25m_split_s;
+  const layoff = layoffContext(catalogue, opts.date);
+  // De-rate the anchor on a re-entry so the "beat" floor isn't set at a PR
+  // the athlete swam two weeks ago fresh. Slower anchor → slower stretch →
+  // more achievable prescriptions coming back in.
+  const anchor = (rawAnchor != null && layoff.is_re_entry)
+    ? round1(rawAnchor * (1 + RE_ENTRY_DE_RATE))
+    : rawAnchor;
   const stretch = anchor != null ? round1(anchor - TARGET_STEPS.sprint_25m_stretch_s) : null;
-  const implied50 = stretch != null ? round1(stretch * 2 - TARGET_STEPS.turn_savings_s) : null;
-  const phaseTarget = phaseTargetFor(currentPhase(catalogue), 'best_25m_sprint_protocol_s');
+  // 50m = L1 at stretch pace + L2 at stretch pace + a small fatigue debit.
+  // Always > 2×stretch (round-5 assertion: never present an implied 50m the
+  // athlete's own 25m target can't produce). Feedback also asked that the
+  // long-horizon phase goal live in its OWN field, not mixed into today's
+  // ladder — that field is `phase_goal_50m_s` (from phases.js) vs today's
+  // derived `implied_50m_from_stretch_s`.
+  const implied50 = stretch != null ? round1(stretch * 2 + TARGET_STEPS.turn_cost_s) : null;
+  const phase25 = phaseTargetFor(currentPhase(catalogue), 'best_25m_sprint_protocol_s');
+  const phase50Goal = phaseTargetFor(currentPhase(catalogue), 'best_50m_equiv_s');
   return {
     beat_25m_s: anchor ?? null,
     stretch_25m_s: stretch,
@@ -128,7 +162,11 @@ function sprintTargets(catalogue) {
     sprint_swolf_target: sprintSwolfTarget(catalogue),
     stroke_count_target: TARGET_STEPS.stroke_count_target,
     stroke_count_acceptable: TARGET_STEPS.stroke_count_acceptable,
-    phase_25m_target_s: phaseTarget ?? null,
+    phase_25m_target_s: phase25 ?? null,
+    phase_goal_50m_s: phase50Goal ?? null, // long-horizon phase goal — NOT derived from today's 25m
+    re_entry: layoff.is_re_entry,          // LLM prompt frames re-entry differently
+    days_since_last_pool: layoff.days_since_last_pool,
+    pre_layoff_beat_25m_s: layoff.is_re_entry ? rawAnchor : undefined,
   };
 }
 
@@ -178,9 +216,9 @@ function racePaceTargets(catalogue) {
  * @param {string} subtype - 'sprint' | 'threshold' | 'technique' | 'race_pace' | 'recovery'
  * @returns {object} targets for that subtype
  */
-export function computeTargets(catalogue, subtype) {
+export function computeTargets(catalogue, subtype, opts = {}) {
   switch (subtype) {
-    case 'sprint':    return sprintTargets(catalogue);
+    case 'sprint':    return sprintTargets(catalogue, opts);
     case 'threshold': return thresholdTargets(catalogue);
     case 'technique': return techniqueTargets(catalogue);
     case 'race_pace': return racePaceTargets(catalogue);

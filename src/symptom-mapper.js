@@ -121,6 +121,21 @@ export const FEEDBACK_SIGNALS = [
   { id: 'cut_short', category: 'adherence', applies_to: ['both'], severity: 'high', decay: 'this',
     phrases: ['cut it short', 'stopped early', 'only did half', 'cut short', "didn't finish"],
     effects: { data_quality: 'partial', note: true } },
+  // Round-5 feedback: an athlete note like "watch fell off midway" is a
+  // TRACKING failure, not a compliance failure — the swim happened, the data
+  // is truncated. Emitting cut_short + a "-800m plan deviation" against a
+  // completed session was a repeat false-positive; these two signals now
+  // route through data_quality and suppress those downstream flags.
+  { id: 'tracking_dropout', category: 'adherence', applies_to: ['pool'], severity: 'medium', decay: 'this',
+    phrases: ['watch fell off', 'watch stopped', 'stopped tracking', 'watch died',
+      'tracking stopped', 'lost gps', 'lost tracking', "didn't record",
+      'watch came off', 'watch unstrapped'],
+    effects: { data_quality: 'tracking_dropout', note: true } },
+  { id: 'session_completed_explicit', category: 'adherence', applies_to: ['both'], severity: 'info', decay: 'this',
+    phrases: ['completed this session completely', 'completed the session fully',
+      'did the full session', 'finished the whole session', 'completed the session in full',
+      'finished the session in full', 'did complete this session completely'],
+    effects: { note: true } },
   { id: 'terminated_injury', category: 'adherence', applies_to: ['both'], severity: 'high', decay: 'this',
     phrases: ['stopped because of', 'had to stop because', 'stopped due to'],
     effects: { data_quality: 'partial', note: true } },

@@ -13,7 +13,7 @@
 // touches this; it only ever produces structured inputs that flow through here.
 
 import { migrateCatalogue, nextSessionId, BLOCK_TARGET, drylandSlotForBlock } from './schema.js';
-import { detectFlags, detectDrylandIssues, detectPlanDeviations } from './flags.js';
+import { detectFlags, detectDrylandIssues, detectPlanDeviations, buildPlanTags } from './flags.js';
 import { inferPoolSubtype } from './classify.js';
 import { mapFeedback, FEEDBACK_SIGNALS } from './symptom-mapper.js';
 import { applyPhaseAdvancement } from './phases.js';
@@ -210,19 +210,30 @@ export function logSession(catalogue, input = {}) {
   const fb = input.feedbackText ? mapFeedback(input.feedbackText, { context: type }) : { matched: [], resolved: emptyResolved() };
   const signals = fb.resolved;
 
+  // ── Plan tags (pool sessions with a plan) — round-5 addition.
+  // Maps each actual interval to the plan block it fell inside, so flag
+  // detection can gate PRs on equipment (e.g. don't write a pull-buoy 100m
+  // as best_100m_split_s) and, in future, tag rep_class.
+  const breakdownForTags = type === 'pool' && input.parsed ? buildBreakdown(input.parsed) : [];
+  const planTags = (type === 'pool' && input.planned)
+    ? buildPlanTags(input.planned, breakdownForTags)
+    : new Map();
+
   // ── Flag detection (pool) ──
   // Pass fb (matched signals) so detectTechnical can reconcile safety flags
   // with the athlete's own note — e.g. skip "rest too short" on the final rep
   // of a cut-short session, hedge velocity fade when nausea aborted the swim.
   let detected = { flags: [], new_records: {} };
   if (type === 'pool' && input.parsed) {
-    detected = detectFlags(input.parsed, cat, { subtype, signals: fb });
+    detected = detectFlags(input.parsed, cat, { subtype, signals: fb, planTags });
   }
 
   // ── Dryland data-quality + plan-deviation checks ──
-  const drylandIssues = type === 'dryland' ? detectDrylandIssues(input.dryland ?? { exercises: [] }) : [];
+  const drylandIssues = type === 'dryland'
+    ? detectDrylandIssues(input.dryland ?? { exercises: [] }, cat.rolling_bests?.dryland_baselines ?? null)
+    : [];
   const planDeviations = (type === 'pool' && input.parsed && input.planned)
-    ? detectPlanDeviations(input.planned, buildBreakdown(input.parsed))
+    ? detectPlanDeviations(input.planned, breakdownForTags, { signals: fb })
     : [];
 
   // ── Build session record ──

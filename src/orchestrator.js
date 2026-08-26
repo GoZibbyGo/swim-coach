@@ -95,6 +95,10 @@ export function buildPrompt(decision, catalogue, targets, opts = {}) {
     '- Honour STANDING ATHLETE PREFERENCES extracted from recent notes (see "Recent athlete notes" below). If the athlete has modified the same block in their last two sessions (e.g. swapped the cool-down to 4×50 with 20s rest and a low-stroke focus), incorporate that into this session\'s prescription rather than repeating the unwanted version.',
     '- TARGET-LADDER FIDELITY: the deterministic core hands you one authoritative "Targets to embed" object per session with the exact numbers to use (beat_25m_s, stretch_25m_s, implied_50m_from_stretch_s, sprint_swolf_target, stroke_count_target, phase_25m_target_s, and for race_pace the beat_50m_s / stretch_50m_s / phase_50m_target_s). RESTATE those numbers verbatim in your cue and target lines — never invent, round, or re-derive them. In a sprint session prescribing 50m reps, the 50m target MUST be `implied_50m_from_stretch_s` (which reconciles with 2×stretch_25m_s − turn savings). Do NOT quote the phase_50m_target_s in a sprint session\'s 50m cue — that\'s the long-horizon aspiration, not the per-session prescription.',
     '- In a TECHNIQUE session during a sprint-priority phase (Phase 1), bias at least one main sub-set toward FAST, LOW-STROKE-COUNT 25s (speed-technique) rather than making the whole main set 100m aerobic pulling. Long aerobic pull sets belong in threshold sessions; technique in a sprint phase should train stroke-count discipline at speed.',
+    '- REP-CLASS TAXONOMY: every set you emit MUST include a `rep_class` field from {max_alactic, speed_technique, build_finish, aerobic, drill}. The rest you prescribe must satisfy that class\'s minimum: max_alactic ≥120s, speed_technique 45–60s, build_finish 60–90s, aerobic ≥15s, drill ≥15s. NEVER label a set "max" (max_alactic) unless you are also giving it full alactic recovery (≥120s). Threshold/aerobic sets are NOT max_alactic even if the reps are short.',
+    '- POST-LAYOFF RE-ENTRY: when the "Targets to embed" object has `re_entry: true` (>10 days since the last pool session, so today\'s numbers are de-rated by 2.5%), say so in the session cue ("re-entry session — first swim back in N days"), frame the targets as re-entry benchmarks (not PR attempts), and cap the sprint main set at 3–4 max reps rather than a full 8-rep block.',
+    '- ANTI-REPETITION WITHIN A BLOCK: no two pool sessions of the same subtype in a single 4-session block may share the same main-set architecture. If the previous same-subtype session used pull-buoy 100s + fast 25s, the next one MUST use a different structure (descending stroke-count ladders, negative-split 50s, broken 100s, etc.). The "Your most recent MAIN SET was:" line tells you what to differ FROM.',
+    '- SPRINT WARM-UP CAP: in a SPRINT session, keep the warm-up + priming to ≤30% of total prescribed volume. The majority of the session must be quality work. A 700m warm-up in a 1700m sprint session is 42% — too much.',
     opts.knowledge ? `\nDomain context:\n${opts.knowledge}` : '',
     `\n${SESSION_CONTRACT}`,
   ].join('\n');
@@ -175,7 +179,7 @@ export async function generateSession(catalogue, opts = {}) {
     explicit_type: opts.explicit_type,
     explicit_subtype: opts.explicit_subtype,
   });
-  const targets = computeTargets(catalogue, decision.subtype);
+  const targets = computeTargets(catalogue, decision.subtype, { date });
   const callFn = opts.callGeminiFn ?? callGemini;
 
   const result = (extra) => ({ decision, targets, ...extra });
