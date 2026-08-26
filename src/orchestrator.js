@@ -256,7 +256,12 @@ export async function generateSession(catalogue, opts = {}) {
 
     const res = await callFn({
       apiKey: opts.apiKey, model: opts.model, systemPrompt, userPrompt: prompt,
-      temperature: 0.5,
+      // Generation IS schema-validated, so temperature trades variety against
+      // retry/fallback rate. Raised 0.5 → 0.65 now that the archetype menu
+      // constrains STRUCTURE explicitly — variety no longer has to come from
+      // sampling noise. Retries drop back to 0.5 so a correction attempt is
+      // more literal about fixing the named errors.
+      temperature: attempt === 1 ? 0.65 : 0.5,
       fetchFn: opts.fetchFn, isOnline: opts.isOnline,
     });
 

@@ -105,22 +105,22 @@ high confidence, no research needed.
 - ☑ **B6 — Kick / start / turn work as first-class blocks**, honouring the quad constraint.
 - ☑ **B7 — Tests.**
 
-## 4. Workstream C — LLM responsiveness & realism (Task 3) → ⬅️ **NEXT SESSION STARTS HERE** (target v32)
+## 4. Workstream C — LLM responsiveness & realism (Task 3) → ☑ **SHIPPED v32**
 
 Deliberately **last**: C1 restructures the prompts, and doing it before A/B would mean
 rewriting them twice. A does *surgical* prompt edits; C does the full restructure on top.
 
-- ☐ **C1 — Restructure both prompts.** The analysis system prompt is now ~25 bullets of
+- ☑ **C1 — Restructure both prompts.** The analysis system prompt is now ~25 bullets of
   `NEVER`/`ALWAYS`. That volume of negative constraint is itself a cause of formulaic,
   low-creativity output — it crowds out actual coaching. Split into **(i)** a short
   data-integrity contract (non-negotiable, keep terse) and **(ii)** a positive coaching brief
   (what a good debrief *does*).
-- ☐ **C2 — Temperature + model strategy.** Generation is `0.5`, analysis `0.6`. With the
+- ☑ **C2 — Temperature + model strategy.** Generation is `0.5`, analysis `0.6`. With the
   validator + archetypes constraining *shape*, generation temp can rise safely. Consider a
   stronger model for **analysis only** — it's one call per session, so quota-cheap.
-- ☐ **C3 — Deterministic "lead with this" hint** so debriefs don't open identically every time.
-- ☐ **C4 — Feed a short block-history digest** so cross-session trend claims are grounded.
-- ☐ **C5 — Tests + an eval run** (`node scripts/eval-batch.js 7`) to grade the result.
+- ☑ **C3 — Deterministic "lead with this" hint** so debriefs don't open identically every time.
+- ☑ **C4 — Feed a short block-history digest** so cross-session trend claims are grounded.
+- ◐ **C5 — Tests done; the EVAL RUN is still outstanding** → (`node scripts/eval-batch.js 7`) to grade the result.
 
 ---
 
@@ -155,3 +155,13 @@ rewriting them twice. A does *surgical* prompt edits; C does the full restructur
   "Sprint Main Set", so every new archetype template ("Main Set — Broken 50s" etc.) would have
   shipped with **no target line**. Both fixed with regression tests.
   **Next session: workstream C (C1 prompt restructure first).**
+- **2026-08-26 (session 1, continued).** Shipped **v32** (workstream C): analysis system prompt
+  restructured from ~22 flat NEVER/ALWAYS bullets into Part A (data contract) / Part B (athlete
+  constraints) / Part C (what a good debrief does) — the undifferentiated prohibition wall was
+  itself driving formulaic output. Added a deterministic `leadAngle()` so consecutive debriefs
+  don't open identically, and a same-subtype trend digest so cross-session claims are grounded.
+  Analysis temperature 0.6 → 0.85 (prose, no validator to fail); generation 0.5 → 0.65 on the
+  first attempt only, dropping to 0.5 on correction retries.
+  **ALL THREE WORKSTREAMS COMPLETE. Remaining: the C5 eval run** —
+  `node --env-file=.env scripts/eval-batch.js 7` when the Gemini daily quota allows, then grade
+  it in the claude.ai project to confirm the changes actually moved the grades.

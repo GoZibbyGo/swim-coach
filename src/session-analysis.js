@@ -64,6 +64,43 @@ function breakdownText(session) {
   return '(no per-interval data — session logged without a Garmin CSV)';
 }
 
+// Deterministic pick of what THIS debrief should open with. Without it every
+// session opens on whichever flag the model happens to latch onto — in practice
+// the same one or two every time, which is what made the debriefs feel
+// interchangeable. Ordered most- to least-newsworthy.
+export function leadAngle(session, recordFlags, otherFlags) {
+  const has = re => otherFlags.some(f => re.test(f));
+  if (recordFlags.some(f => /NEW /i.test(f))) return 'the new record — what produced it, and whether it is repeatable';
+  if (has(/^Data quality:/)) return 'the data-quality caveat, so the athlete knows what the numbers do and do not cover';
+  if (has(/^Turn conversion:/)) return 'the turn not converting — the one genuinely coachable wall finding';
+  if (has(/Dryland (PR|regression)/i)) return 'the dryland result against its baseline';
+  if (has(/Sprint rest too short/)) return 'the rest discipline on the max reps and what it cost';
+  if (has(/Stroke drift/)) return 'the stroke-count drift under fatigue';
+  if (has(/Cool-down HR elevated/)) return 'the CO2 / cool-down HR picture';
+  if (has(/^Split imbalance:/)) return 'the split imbalance and which end of the rep it comes from';
+  if (has(/Sprint pacing inconsistent|Velocity fade/)) return 'the consistency across the max reps';
+  if (recordFlags.length) return 'the matched best and what it says about consistency';
+  return 'the single most useful pattern in the per-interval data';
+}
+
+// Compact history of the last few same-type/subtype sessions, so cross-session
+// trend claims are grounded in numbers rather than invented.
+function recentTrendText(catalogue, session, n = 3) {
+  const prior = (catalogue?.sessions ?? [])
+    .filter(s => s && s.id !== session.id && s.type === session.type && s.subtype === session.subtype)
+    .slice(0, n);
+  if (!prior.length) return '';
+  return prior.map(s => {
+    const m = s.metrics ?? {};
+    const bits = [];
+    if (m.best_25m_split_s != null) bits.push(`best 25m ${m.best_25m_split_s}s`);
+    if (m.avg_swolf != null) bits.push(`avg SWOLF ${m.avg_swolf}`);
+    if (m.avg_dps_m != null) bits.push(`DPS ${m.avg_dps_m}`);
+    if (s.distance_m) bits.push(`${s.distance_m}m`);
+    return `- ${s.date}: ${bits.length ? bits.join(', ') : 'no stored metrics'}`;
+  }).join('\n');
+}
+
 export function buildAnalysisPrompt(session, catalogue, knowledge) {
   const rb = catalogue?.rolling_bests ?? {};
   // Separate the engine's record flags from other flags so the prompt can
@@ -78,40 +115,49 @@ export function buildAnalysisPrompt(session, catalogue, knowledge) {
   const hasNotes = rawNotes && !/auto-synthesised|training-camp eval/i.test(rawNotes);
   const prescribed = planText(session);
   const reconciliation = buildPlanReconciliation(session.plan, session.breakdown).text;
+  const trend = recentTrendText(catalogue, session);
 
+  // Prompt structure note (v32): this used to be ~22 flattened bullets all
+  // phrased as NEVER/ALWAYS. That volume of undifferentiated prohibition is
+  // itself a cause of formulaic, low-insight debriefs — the model spends its
+  // attention on compliance and produces the same hedged paragraphs every
+  // session. Split into three clearly-scoped parts: a terse data contract, the
+  // athlete's fixed constraints, and a POSITIVE brief for what good looks like.
   const systemPrompt = [
-    'You are an expert sprint-freestyle swim coach writing a detailed post-session debrief for the athlete.',
-    'Write in markdown with these sections, in this order, using ## headings:',
-    '## 🏆 Records — list ONLY the records in the "Records this session" list below (with context vs the previous best). If that list is empty, write "No new records this session." — do not invent any.',
-    '## 📊 Session Breakdown — go block by block (warm-up, drills, main set, sprint finish, cool-down as applicable). Build a rep table ONLY from per-interval data that is actually provided; if only summary data exists, describe it without a fabricated table.',
-    '## 🚩 Coach Flags — data-quality notes, HR/CO2 observations, anything to watch.',
-    '## 🎯 Coaching Takeaways — what the data reveals about where speed/limits come from, how it relates to the phase, and 1–2 concrete action items.',
-    'Only add a "Response to your notes" section if the athlete actually left notes (see below) — otherwise omit it entirely.',
+    'You are an expert sprint-freestyle swim coach writing a post-session debrief for the athlete.',
     '',
-    'CRITICAL DATA RULES — violating these makes the debrief useless:',
-    '- Use ONLY the numbers in "Session metrics", the per-interval data, and the flags below. NEVER invent or estimate per-rep splits, HR, SWOLF, or paces. No data → no table.',
-    '- If there is NO performance data (e.g. a dryland session with no exercises, or "no per-interval data"), say plainly there is nothing to analyse for performance. NEVER fabricate a swim, splits, reps, or results that did not happen.',
-    '- The provided summary IS the source of truth. Do NOT dismiss it as a device/Garmin glitch or substitute your own numbers.',
-    '- Report ONLY the records in the "Records this session" list. The "Rolling bests" line is prior-history CONTEXT for comparison only — never present any of those figures as a record/PR achieved THIS session, and never coin a new PR (including derived 50m times).',
-    '- PLAN FIDELITY: the "Prescribed plan" and the engine-computed "Plan vs actual" reconciliation below are AUTHORITATIVE. Restate the plan using its own numbers — never paraphrase a set into different reps/distances/rest. Do NOT do your own plan-vs-actual matching from the interval list, and NEVER assert a deviation the reconciliation does not show. If the reconciliation says a block was "swum as prescribed", it was — say so or say nothing, but do not invent a shortfall.',
-    '- L1 vs L2 SPLITS — READ THIS CAREFULLY. In a 25m pool the first length of any 50m+ rep is a push start from a DEAD STOP; every later length is turn-aided and entered with speed. L2 being ~0.5–1.2s faster than L1 is NORMAL PHYSICS, not a weakness, and must NOT be presented as a fault, a "gap to attack", or an action item. Discuss the turn/push-off ONLY when the engine emits a "Turn conversion:" or "Split imbalance:" flag below — those fire only when the gap is genuinely outside the normal band. If neither flag is present, do not raise the topic at all.',
-    '- WALL PUSH-OFF, when a flag does warrant discussing it, must be coached through streamline tightness and breakout timing ONLY. NEVER prescribe dolphin kicks or ballistic/explosive wall drives — this athlete has a left-quad cramp history and the rest of the system bans them.',
-    '- Cool-down HR: this athlete has lagging CO2 tolerance. Flag an elevated cool-down HR as something to work on; do NOT praise a fast HR drop as a positive.',
-    '- Judge the session against its STATED purpose and phase priority (e.g. a technique session on technique/DPS execution, not on threshold pace).',
-    '- The ≥120s-rest rule applies ONLY to reps the plan labels max/sprint. Do NOT flag labeled "build"/easy reps as rest violations.',
-    '- VARY the debrief — do not open every session with the same two flags or close with the same two action items. Lead with what matters most THIS session and reference cross-session trends where the data shows them.',
-    '- Keep the debrief COMPLETE and self-contained: finish every section and every sentence; do not run past the length budget mid-thought.',
-    '- ALWAYS read the athlete\'s note and respond to it directly in one short paragraph: acknowledge what they reported, address any injury/recovery update (e.g. "quad cramps no longer a problem" should be reflected), and react to plan modifications (cool-down swaps, set changes). If a "Response to your notes" section makes sense, add it; otherwise weave the response into the Coaching Takeaways. Never leave the note unaddressed.',
-    '- QUALIFY every "best" 25m / 50m split you cite: was the rep a clean flying/max effort in a dedicated sprint set, or did it come from a build / sprint-finish / progressive rep? Look at the interval\'s position in the session (last sprint set vs sprint finish after threshold work), its stroke count (a lower-than-normal stroke count on an already-fast 25m is often a partial-drill rep), and the surrounding context. NEVER present an assisted, build, or drill-adjacent split as an unqualified PR — the reader will over-credit the swim.',
-    '- BEFORE asserting a rest-too-short or safety violation, cross-check the athlete note and the engine flags. If an interval was mislogged as a swim rep (per the athlete\'s note), or occurred inside an athlete-reported early stop (cut short, terminated), OMIT the safety flag or hedge it by naming the athlete\'s explanation ("the fade at INT 30 tracks the CO2/nausea the athlete described — not a rest issue"). False safety flags on bad or already-explained data erode trust.',
-    '- If this session completes a block (block_number differs from the immediately following session date, or "BLOCK COMPLETE" appears in the flags), end the debrief with a SINGLE "🎯 Top priority for next block" line naming the ONE recurring limiter across the block\'s sessions (e.g. the first-length wall push-off gap, lagging CO2 tolerance, sprint SWOLF stagnation). CITE the per-session numbers to show whether it improved or worsened (e.g. "first-length gap 2.6s → 3.4s → 0.8s across the block — trending better on the sprint day"). Do NOT repeat the same flag independently for each session — synthesise. This rule ships every session; obey it whenever a block just closed.',
-    '- NEVER report a PR from a rep that used equipment (pull buoy, paddles, fins) OR was logged as a drill. The engine now emits "Fast 25m/50m/100m NOT written as PR (assisted rep — …)" lines when it detects this — reflect that in the Records section rather than presenting the number as a PR. If a fast split came from an assisted rep, name the assistance explicitly.',
-    '- COMPUTE pacing spread and velocity fade ONLY across reps of the same rep_class (max_alactic OR build_finish OR speed_technique — never mixed). A max_alactic rep at 16.5s and a build_finish rep at 19.1s producing a "2.5s spread across 11 max reps" is a misclassification, not a coaching finding.',
-    '- FOR DRYLAND SESSIONS: compare EVERY logged exercise to its stored baseline in `dryland_baselines` (rolling_bests). Call out beats and misses by name — the engine now emits "Dryland PR: …" flags for known families (hollow-body hold, pull-ups, dips, V-ups, dead hang). If a session has no comparable baseline for an exercise, say so ("first baseline for X") rather than skipping it. Also surface any carry-forward item still marked "NOT YET ESTABLISHED" (engine emits a flag for those too).',
-    '- TRACKING DROPOUT vs CUT-SHORT: if the athlete note says the session was completed and the watch stopped / fell off mid-session, DO NOT write "cut short" or assert a volume compliance failure. The engine now emits a "Data quality: tracking dropout" flag in that case — report the missing metres as untracked, not skipped. Read the athlete note before writing any completion statement.',
-    '- BLOCK-LEVEL SYNTHESIS: when the engine flags a NEW BEST or "matched" record, write a one-line cross-session summary linking it to the immediately prior session(s) of the same type — e.g. "second sprint session this block to match 16.6s, with 12 reps under 17.0s." Don\'t treat each PR as an isolated event.',
-    '- NEVER emit internal classifier tags (strings of the form `Feedback: <token>` or `<lowercase_with_underscores>`) to the user. If you see one in the engine flags, drop it or rewrite it as a coaching sentence.',
-    'Be specific and use the real numbers. Direct, encouraging coach voice. No preamble before the first heading.',
+    'STRUCTURE — markdown, ## headings, in this order:',
+    '## 🏆 Records — only what the "Records this session" list contains, with context vs the previous best. Empty list → "No new records this session."',
+    '## 📊 Session Breakdown — block by block, following the Prescribed plan\'s own block names. Build a rep table only from per-interval data that is actually provided.',
+    '## 🚩 Coach Flags — data-quality notes, HR/CO2 observations, anything to watch.',
+    '## 🎯 Coaching Takeaways — what the data says about where speed is coming from and what limits it, tied to the phase, ending in 1–2 concrete actions.',
+    'Add a "Response to your notes" section ONLY if the athlete left notes.',
+    '',
+    '── PART A: DATA CONTRACT (hard constraints — a breach makes the debrief worthless) ──',
+    'A1. Every number you write must come from the data below. Never invent or estimate a split, HR, SWOLF, stroke count or pace. No data → no table, and say plainly there is nothing to analyse.',
+    'A2. The provided metrics ARE the source of truth. Never dismiss them as a device glitch or substitute your own figures.',
+    'A3. Report only the records in "Records this session". "Rolling bests" is prior-history context — never present one as achieved today, and never coin a new PR (including derived 50m times).',
+    'A4. Never report a PR from an equipment-assisted (pull buoy, paddles, fins) or drill rep. The engine emits "… NOT written as PR (assisted rep …)" — reflect that, naming the assistance.',
+    'A5. The "Prescribed plan" and the engine-computed "Plan vs actual" table are AUTHORITATIVE. Restate the plan in its own numbers; never paraphrase a set into different reps/distances/rest. Do not do your own plan-vs-actual matching, and never assert a deviation the table does not show. "Swum as prescribed" means it was.',
+    'A6. Compute pacing spread and velocity fade only across reps of the SAME rep_class. Mixing a 16.5s max_alactic rep with a 19.1s build rep into "2.5s spread across 11 max reps" is a misclassification, not a finding.',
+    'A7. Never emit internal classifier tags (`Feedback: <token>`, bare `lowercase_with_underscores`). Rewrite them as coaching sentences or drop them.',
+    '',
+    '── PART B: THIS ATHLETE\'S FIXED CONSTRAINTS ──',
+    'B1. L1 vs L2 IS NOT A DEFECT. In a 25m pool the first length of any 50m+ rep is a push start from a DEAD STOP; later lengths are turn-aided and entered with speed. L2 being ~0.5–1.2s faster is NORMAL PHYSICS. Never present it as a fault, a "gap to attack", or an action item. Raise the turn ONLY when the engine emits a "Turn conversion:" or "Split imbalance:" flag — those fire only outside the normal band. No such flag → do not mention the topic at all.',
+    'B2. Left-quad cramp history: never prescribe dolphin kick or ballistic/explosive wall drives. Wall work is streamline tightness and breakout timing only.',
+    'B3. Lagging CO2 tolerance: treat an elevated cool-down HR as work to do; never praise a fast HR drop as a win.',
+    'B4. The ≥120s rest rule applies only to reps the plan labels max/sprint. Build and easy reps are not violations.',
+    'B5. Before asserting any safety or compliance failure, read the athlete\'s note. If they explained it (mislogged rep, early stop, nausea), either omit the flag or name their explanation. If the note says the session was completed and the watch stopped, the metres are UNTRACKED, not skipped — never write "cut short".',
+    '',
+    '── PART C: WHAT A GOOD DEBRIEF DOES (this is the part that makes it worth reading) ──',
+    'C1. Lead with what actually mattered THIS session. A suggested opening angle is given below — use it unless the data points somewhere more interesting. Consecutive debriefs opening the same way is a failure.',
+    'C2. Use the recent-session history below to make trend claims real: "second sprint session this block under 17.0s", "SWOLF 31 → 30 → 28 across the block". Cite the numbers. Don\'t treat each result as isolated.',
+    'C3. Qualify every "best" split you cite — was it a clean max effort in a dedicated sprint set, or a build / sprint-finish / drill-adjacent rep? Position in the session and stroke count tell you. An unqualified PR the reader over-credits is worse than no PR.',
+    'C4. Judge the session against ITS OWN stated purpose (a technique session on technique execution, not on threshold pace).',
+    'C5. Respond to the athlete\'s note directly and specifically — acknowledge what they reported, reflect injury/recovery updates, react to any plan modification they made. Never leave a note unaddressed.',
+    'C6. For dryland, compare every logged exercise to its stored baseline by name, including "first baseline for X" where none exists.',
+    'C7. If this session closes a block, finish with ONE "🎯 Top priority for next block" line naming the single recurring limiter, with the per-session numbers showing whether it improved. Synthesise — do not repeat the same flag per session.',
+    'C8. Finish every section and every sentence. Specific, direct, encouraging coach voice. No preamble before the first heading.',
     knowledge ? `\nDomain context:\n${knowledge.slice(0, 5000)}` : '',
   ].filter(Boolean).join('\n');
 
@@ -129,6 +175,8 @@ export function buildAnalysisPrompt(session, catalogue, knowledge) {
     recordFlags.length ? `Records this session (report ONLY these):\n- ${recordFlags.join('\n- ')}` : 'Records this session: NONE — do not report any records.',
     otherFlags.length ? `Other engine flags (incorporate these):\n- ${otherFlags.join('\n- ')}` : '',
     hasNotes ? `Athlete's own notes (respond to these directly): "${rawNotes}"` : 'Athlete left no notes — OMIT any notes-response section.',
+    trend ? `Recent ${session.subtype} ${session.type} sessions (for grounded trend claims — cite these numbers, don't invent a trend):\n${trend}` : '',
+    `SUGGESTED OPENING ANGLE for this debrief: ${leadAngle(session, recordFlags, otherFlags)}. Override it only if the data genuinely points somewhere more interesting.`,
   ].filter(Boolean).join('\n');
 
   return { systemPrompt, userPrompt };
@@ -207,7 +255,11 @@ export async function analyzeSession(catalogue, opts = {}) {
   const callFn = opts.callGeminiFn ?? callGemini;
   const res = await callFn({
     apiKey: opts.apiKey, model: opts.model, systemPrompt, userPrompt,
-    responseMimeType: 'text/plain', temperature: 0.6, maxOutputTokens: 16384,
+    // Analysis emits PROSE, not schema-validated JSON — there is no validator
+    // to fail, so the only cost of a higher temperature is stylistic variation,
+    // which is exactly what "the debriefs read the same every week" needs. The
+    // Part-A data contract does the factual guarding, not the temperature.
+    responseMimeType: 'text/plain', temperature: opts.temperature ?? 0.85, maxOutputTokens: 16384,
     fetchFn: opts.fetchFn, isOnline: opts.isOnline,
   });
 

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { analyzeSession, buildAnalysisPrompt } from '../src/session-analysis.js';
+import { analyzeSession, buildAnalysisPrompt, leadAngle } from '../src/session-analysis.js';
 
 function catWithSession(extra = {}) {
   return {
@@ -92,11 +92,21 @@ test('prompt carries the engine-computed plan-vs-actual reconciliation', () => {
 
 test('system prompt forbids self-computed deviations and normal-band L1/L2 talk', () => {
   const { systemPrompt } = buildAnalysisPrompt(catWithSession().sessions[0], catWithSession());
-  assert.match(systemPrompt, /PLAN FIDELITY/);
-  assert.match(systemPrompt, /NEVER assert a deviation the reconciliation does not show/);
+  assert.match(systemPrompt, /AUTHORITATIVE/);
+  assert.match(systemPrompt, /never assert a deviation the table does not show/i);
   assert.match(systemPrompt, /NORMAL PHYSICS/);
   assert.ok(!/ALWAYS compare each rep's first length/.test(systemPrompt),
     'the mandatory push-off callout rule must be gone');
+});
+
+test('system prompt is split into a data contract, constraints, and a positive brief', () => {
+  // A flat wall of NEVER/ALWAYS bullets is itself a cause of formulaic
+  // debriefs — the three-part split is the fix, so guard it.
+  const { systemPrompt } = buildAnalysisPrompt(catWithSession().sessions[0], catWithSession());
+  assert.match(systemPrompt, /PART A: DATA CONTRACT/);
+  assert.match(systemPrompt, /PART B: THIS ATHLETE'S FIXED CONSTRAINTS/);
+  assert.match(systemPrompt, /PART C: WHAT A GOOD DEBRIEF DOES/);
+  assert.ok(systemPrompt.indexOf('PART A') < systemPrompt.indexOf('PART C'));
 });
 
 test('a session with no plan still builds a prompt (external / hand-logged)', () => {
@@ -106,3 +116,43 @@ test('a session with no plan still builds a prompt (external / hand-logged)', ()
   assert.match(userPrompt, /Per-interval data:/);
 });
 
+
+// ──────────────────────────────────────────────────────────────────────────
+// Workstream C — responsiveness
+
+test('leadAngle varies with what actually happened this session', () => {
+  const s = catWithSession().sessions[0];
+  assert.match(leadAngle(s, ['NEW SPRINT PROTOCOL BEST: 16.6s'], []), /new record/);
+  assert.match(leadAngle(s, [], ['Turn conversion: across 4×50m …']), /turn not converting/);
+  assert.match(leadAngle(s, [], ['Data quality: tracking dropout — 400m untracked']), /data-quality/);
+  assert.match(leadAngle(s, [], ['Cool-down HR elevated: peak 170 bpm']), /CO2/);
+  assert.match(leadAngle(s, [], ['Stroke drift detected: 7 early → 9 late']), /stroke-count drift/);
+  // Nothing notable → a generic but still directive angle.
+  assert.match(leadAngle(s, [], []), /most useful pattern/);
+});
+
+test('leadAngle prioritises a record over a lesser flag', () => {
+  const s = catWithSession().sessions[0];
+  const angle = leadAngle(s, ['NEW 25M BEST (raw): 16.2s'], ['Cool-down HR elevated: peak 170 bpm']);
+  assert.match(angle, /new record/);
+});
+
+test('prompt carries the opening angle and a grounded trend history', () => {
+  const cat = catWithSession();
+  cat.sessions.push(
+    { id: 18, date: '2026-05-17', type: 'pool', subtype: 'sprint', distance_m: 1700, metrics: { best_25m_split_s: 16.9, avg_swolf: 31 } },
+    { id: 17, date: '2026-05-14', type: 'pool', subtype: 'sprint', distance_m: 1650, metrics: { best_25m_split_s: 17.1, avg_swolf: 32 } },
+    { id: 16, date: '2026-05-12', type: 'pool', subtype: 'threshold', distance_m: 2000, metrics: { avg_swolf: 33 } },
+  );
+  const { userPrompt } = buildAnalysisPrompt(cat.sessions[0], cat);
+  assert.match(userPrompt, /SUGGESTED OPENING ANGLE/);
+  assert.match(userPrompt, /Recent sprint pool sessions/);
+  assert.match(userPrompt, /2026-05-17: best 25m 16\.9s, avg SWOLF 31/);
+  // Only same-subtype history — the threshold session must not be listed.
+  assert.ok(!/2026-05-12/.test(userPrompt), 'trend history must be same-subtype only');
+});
+
+test('trend history is omitted when there is no comparable history', () => {
+  const { userPrompt } = buildAnalysisPrompt(catWithSession().sessions[0], catWithSession());
+  assert.ok(!/Recent sprint pool sessions/.test(userPrompt));
+});
