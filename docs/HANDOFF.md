@@ -2,6 +2,8 @@
 
 Self-contained quick-start for a fresh Claude Code session. **Read order:** this file → `../README.md` (full architecture) → `coaching-project-brief.md` / `eval-grading-brief.md` / `coaching-checks.md` → `src/*`.
 
+> 🔴 **ACTIVE MULTI-SESSION WORK:** `PLAN-coaching-quality.md` holds the diagnosis + chunked plan for the three-workstream coaching-quality overhaul (feedback fidelity / training science / LLM responsiveness). **Read it before touching `session-analysis.js`, `orchestrator.js`, `flags.js`, or the fallback library** — the root-cause diagnosis is already done there; re-deriving it is the expensive part.
+
 ---
 
 ## 1. What this is & where it lives

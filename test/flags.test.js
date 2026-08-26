@@ -4,7 +4,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { detectFlags, detectRecords, detectTechnical, detectDrylandIssues, detectPlanDeviations, buildPlanTags } from '../src/flags.js';
+import { detectFlags, detectRecords, detectTechnical, detectDrylandIssues, detectPlanDeviations, buildPlanTags, buildPlanReconciliation } from '../src/flags.js';
 import { parseGarminCsv } from '../src/garmin-parser.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -120,11 +120,65 @@ test('detects new avg pace best', () => {
 // ──────────────────────────────────────────────────────────────────────────
 // Technical detection
 
-test('detects first-length gap across 50m reps', () => {
+// Turn conversion (formerly "first-length gap"). L1 is a dead-stop push start,
+// L2 is turn-aided — a 0.5–1.2s advantage to L2 is NORMAL and must stay silent.
+
+test('NORMAL L1→L2 turn advantage (0.9s) produces NO flag', () => {
+  // The athlete's core complaint: a dead-stop L1 vs a turn-aided L2 differing
+  // by ~1s is physics, not a defect. The old rule fired at >=0.5s, i.e. on
+  // essentially every session with 50m reps.
+  const p = parsed({ intervals: [fiftyRep(1, 17.4, 16.5), fiftyRep(2, 17.6, 16.7)] });
+  const r = detectTechnical(p);
+  assert.ok(!r.flags.some(f => /Turn conversion|Split imbalance|First-length gap/.test(f)),
+    `a normal turn advantage must be silent, got: ${JSON.stringify(r.flags)}`);
+});
+
+test('turn NOT converting (L2 only 0.2s faster) IS flagged', () => {
+  const p = parsed({ intervals: [fiftyRep(1, 17.0, 16.8), fiftyRep(2, 17.2, 17.0)] });
+  const r = detectTechnical(p);
+  assert.ok(r.flags.some(f => /^Turn conversion:/.test(f)),
+    `flags: ${JSON.stringify(r.flags)}`);
+});
+
+test('L2 SLOWER than L1 is flagged as a turn-conversion failure', () => {
+  const p = parsed({ intervals: [fiftyRep(1, 16.8, 17.4), fiftyRep(2, 17.0, 17.6)] });
+  const r = detectTechnical(p);
+  assert.ok(r.flags.some(f => /^Turn conversion:.*SLOWER than L1/.test(f)),
+    `flags: ${JSON.stringify(r.flags)}`);
+});
+
+test('oversized split gap (2.5s) is flagged as imbalance, not a push-off fault', () => {
   const p = parsed({ intervals: [fiftyRep(1, 22.0, 19.5), fiftyRep(2, 22.5, 20.0)] });
   const r = detectTechnical(p);
-  assert.ok(r.flags.some(f => /First-length gap: L1 avg 22\.3s vs L2 avg 19\.8s/.test(f)),
+  assert.ok(r.flags.some(f => /^Split imbalance:.*2\.5s faster than L1/.test(f)),
     `flags: ${JSON.stringify(r.flags)}`);
+});
+
+test('oversized gap names the standing-start 25m best when L1 is off it', () => {
+  const p = parsed({ intervals: [fiftyRep(1, 22.0, 19.5), fiftyRep(2, 22.5, 20.0)] });
+  const r = detectFlags(p, { rolling_bests: { best_25m_sprint_protocol_s: 16.8 } });
+  assert.ok(r.flags.some(f => /standing-start 25m best \(16\.8s\)/.test(f)),
+    `flags: ${JSON.stringify(r.flags)}`);
+});
+
+test('split check judges the DOMINANT distance group, not a mix of 50s and 100s', () => {
+  // 3×50 (normal 0.9s advantage) + 1×100 (huge L1/L2 gap). Averaging them
+  // together is the mixed-rep_class error; the 50s dominate and are normal.
+  const hundred = {
+    interval_number: 9, is_rest: false, distance_m: 100, time_s: 80, stroke: 'Freestyle',
+    lengths: [
+      { is_freestyle: true, is_drill: false, time_s: 24.0 },
+      { is_freestyle: true, is_drill: false, time_s: 18.0 },
+      { is_freestyle: true, is_drill: false, time_s: 19.0 },
+      { is_freestyle: true, is_drill: false, time_s: 19.0 },
+    ],
+  };
+  const p = parsed({ intervals: [
+    fiftyRep(1, 17.4, 16.5), fiftyRep(2, 17.6, 16.7), fiftyRep(3, 17.5, 16.6), hundred,
+  ] });
+  const r = detectTechnical(p);
+  assert.ok(!r.flags.some(f => /Turn conversion|Split imbalance/.test(f)),
+    `the dominant 50m group is normal — should be silent, got: ${JSON.stringify(r.flags)}`);
 });
 
 test('detects stroke drift when late strokes exceed early by >=1', () => {
@@ -324,6 +378,60 @@ test('mixed-distance block does NOT trigger a bogus "prescribed 12×100m" deviat
   const flags = detectPlanDeviations(plan, breakdown);
   assert.ok(!flags.some(f => /12×100m/.test(f)),
     `mixed-block must not render as 12×100m, got: ${JSON.stringify(flags)}`);
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// Plan ↔ actual reconciliation — the deterministic mapping the feedback LLM
+// used to have to guess at (and got wrong).
+
+test('buildPlanReconciliation maps each plan block to its actual intervals', () => {
+  const plan = {
+    total_volume_m: 1000,
+    blocks: [
+      { name: 'Warm-up', sets: [{ reps: 4, distance_m: 100, effort: 'easy', rest_s: 20 }] },
+      { name: 'Main Set — Sprints', sets: [{ reps: 8, distance_m: 25, effort: 'max', rest_s: 120 }] },
+      { name: 'Cool-down', sets: [{ reps: 4, distance_m: 100, effort: 'easy', rest_s: 20 }] },
+    ],
+  };
+  const breakdown = [
+    ...Array.from({ length: 4 }, (_, i) => ({ n: i + 1, distance_m: 100, time_s: 100 })),
+    ...Array.from({ length: 8 }, (_, i) => ({ n: i + 5, distance_m: 25, time_s: 17 })),
+    ...Array.from({ length: 4 }, (_, i) => ({ n: i + 13, distance_m: 100, time_s: 110 })),
+  ];
+  const { rows, text } = buildPlanReconciliation(plan, breakdown);
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].interval_range, 'INT 1–4');
+  assert.equal(rows[0].actual, '4×100m');
+  assert.match(rows[0].status, /swum as prescribed/);
+  assert.equal(rows[1].interval_range, 'INT 5–12');
+  assert.equal(rows[1].actual, '8×25m');
+  assert.match(rows[1].prescribed, /8×25m max @120s/);
+  assert.match(rows[1].status, /swum as prescribed/);
+  assert.equal(rows[2].interval_range, 'INT 13–16');
+  assert.match(text, /Main Set — Sprints/);
+});
+
+test('buildPlanReconciliation marks a genuinely short block, not a compliant one', () => {
+  const plan = {
+    blocks: [
+      { name: 'Main Set', sets: [{ reps: 8, distance_m: 50, rest_s: 60 }] },
+      { name: 'Cool-down', sets: [{ reps: 8, distance_m: 25, rest_s: 15 }] },
+    ],
+  };
+  // Main set swum in full; cool-down cut to 2×25 of the prescribed 8×25.
+  const breakdown = [
+    ...Array.from({ length: 8 }, (_, i) => ({ n: i + 1, distance_m: 50, time_s: 40 })),
+    { n: 9, distance_m: 25, time_s: 22 },
+    { n: 10, distance_m: 25, time_s: 22 },
+  ];
+  const { rows } = buildPlanReconciliation(plan, breakdown);
+  assert.match(rows[0].status, /swum as prescribed/, 'full main set must not be flagged');
+  assert.match(rows[1].status, /−150m vs plan/, `cool-down should show the shortfall, got ${rows[1].status}`);
+});
+
+test('buildPlanReconciliation returns empty (not a crash) with no plan or no breakdown', () => {
+  assert.deepEqual(buildPlanReconciliation(null, [{ n: 1, distance_m: 50 }]), { rows: [], text: '' });
+  assert.deepEqual(buildPlanReconciliation({ blocks: [] }, []), { rows: [], text: '' });
 });
 
 test('detectDrylandIssues flags a high outlier rep count', () => {

@@ -6,6 +6,27 @@
 // only adds interpretation.
 
 import { callGemini } from './gemini.js';
+import { buildPlanReconciliation } from './flags.js';
+
+// The session's PRESCRIBED plan, rendered verbatim for the prompt. Without
+// this the LLM only ever saw a flat interval list and had to reconstruct the
+// plan from it — which is where "you did X but the plan said Y" came from.
+function planText(session) {
+  const blocks = session?.plan?.blocks;
+  if (!Array.isArray(blocks) || !blocks.length) return null;
+  return blocks.map(b => {
+    const sets = Array.isArray(b.sets) ? b.sets : [];
+    const setStr = sets.map(s =>
+      `${Number(s.reps) || 1}×${Number(s.distance_m) || 0}m`
+      + `${s.effort ? ` ${s.effort}` : ''}`
+      + `${s.rest_s != null ? ` @${s.rest_s}s rest` : ''}`
+      + `${s.drill ? ` (${s.drill})` : ''}`
+      + `${s.equipment ? ` [${s.equipment}]` : ''}`
+    ).join(' + ');
+    return `- ${b.name ?? '(block)'} (${b.volume_m ?? '?'}m): ${setStr || '—'}`
+      + `${b.cue ? ` — cue: ${b.cue}` : ''}${b.target ? ` — target: ${b.target}` : ''}`;
+  }).join('\n');
+}
 
 function fmtT(s) { return s == null ? '—' : `${s}s`; }
 function metricsLine(s) {
@@ -55,6 +76,8 @@ export function buildAnalysisPrompt(session, catalogue, knowledge) {
   // Treat blank notes and the eval's synthetic placeholder as "no notes".
   const rawNotes = (session.athlete_feedback ?? '').trim();
   const hasNotes = rawNotes && !/auto-synthesised|training-camp eval/i.test(rawNotes);
+  const prescribed = planText(session);
+  const reconciliation = buildPlanReconciliation(session.plan, session.breakdown).text;
 
   const systemPrompt = [
     'You are an expert sprint-freestyle swim coach writing a detailed post-session debrief for the athlete.',
@@ -70,8 +93,9 @@ export function buildAnalysisPrompt(session, catalogue, knowledge) {
     '- If there is NO performance data (e.g. a dryland session with no exercises, or "no per-interval data"), say plainly there is nothing to analyse for performance. NEVER fabricate a swim, splits, reps, or results that did not happen.',
     '- The provided summary IS the source of truth. Do NOT dismiss it as a device/Garmin glitch or substitute your own numbers.',
     '- Report ONLY the records in the "Records this session" list. The "Rolling bests" line is prior-history CONTEXT for comparison only — never present any of those figures as a record/PR achieved THIS session, and never coin a new PR (including derived 50m times).',
-    '- When per-length split data exists, ALWAYS compare each rep\'s first length to its later length(s) and explicitly call out the wall push-off / first-length gap.',
-    '- WALL PUSH-OFF must be coached through streamline tightness and breakout timing ONLY. NEVER prescribe dolphin kicks or ballistic/explosive wall drives — this athlete has a left-quad cramp history and the rest of the system bans them.',
+    '- PLAN FIDELITY: the "Prescribed plan" and the engine-computed "Plan vs actual" reconciliation below are AUTHORITATIVE. Restate the plan using its own numbers — never paraphrase a set into different reps/distances/rest. Do NOT do your own plan-vs-actual matching from the interval list, and NEVER assert a deviation the reconciliation does not show. If the reconciliation says a block was "swum as prescribed", it was — say so or say nothing, but do not invent a shortfall.',
+    '- L1 vs L2 SPLITS — READ THIS CAREFULLY. In a 25m pool the first length of any 50m+ rep is a push start from a DEAD STOP; every later length is turn-aided and entered with speed. L2 being ~0.5–1.2s faster than L1 is NORMAL PHYSICS, not a weakness, and must NOT be presented as a fault, a "gap to attack", or an action item. Discuss the turn/push-off ONLY when the engine emits a "Turn conversion:" or "Split imbalance:" flag below — those fire only when the gap is genuinely outside the normal band. If neither flag is present, do not raise the topic at all.',
+    '- WALL PUSH-OFF, when a flag does warrant discussing it, must be coached through streamline tightness and breakout timing ONLY. NEVER prescribe dolphin kicks or ballistic/explosive wall drives — this athlete has a left-quad cramp history and the rest of the system bans them.',
     '- Cool-down HR: this athlete has lagging CO2 tolerance. Flag an elevated cool-down HR as something to work on; do NOT praise a fast HR drop as a positive.',
     '- Judge the session against its STATED purpose and phase priority (e.g. a technique session on technique/DPS execution, not on threshold pace).',
     '- The ≥120s-rest rule applies ONLY to reps the plan labels max/sprint. Do NOT flag labeled "build"/easy reps as rest violations.',
@@ -99,6 +123,8 @@ export function buildAnalysisPrompt(session, catalogue, knowledge) {
     metricsLine(session) ? `Session metrics (source of truth): ${metricsLine(session)}.` : '',
     `Rolling bests for comparison (prior history, NOT this-session records): 25m sprint ${rb.best_25m_sprint_protocol_s}s, avg SWOLF ${rb.best_avg_swolf}, sprint SWOLF ${rb.best_sprint_swolf}, threshold pace ${rb.best_threshold_pace_per_100m}/100m, 50m ${rb.best_50m_equiv_s}s.`,
     `Phase ${session.phase_at_time ?? catalogue?.training_phase?.current ?? 1}.`,
+    prescribed ? `PRESCRIBED PLAN (authoritative — restate these numbers exactly, never paraphrase):\n${prescribed}` : '',
+    reconciliation ? `PLAN vs ACTUAL (engine-computed — authoritative, do NOT recompute this yourself):\n${reconciliation}` : '',
     `Per-interval data:\n${breakdownText(session)}`,
     recordFlags.length ? `Records this session (report ONLY these):\n- ${recordFlags.join('\n- ')}` : 'Records this session: NONE — do not report any records.',
     otherFlags.length ? `Other engine flags (incorporate these):\n- ${otherFlags.join('\n- ')}` : '',
@@ -137,6 +163,11 @@ function deterministicSummary(session, catalogue) {
     out.push('## 📊 Session Breakdown', lines.join('\n'));
   }
 
+  // Plan vs actual — deterministic, so the offline debrief is just as faithful
+  // to the prescription as the LLM one.
+  const recon = buildPlanReconciliation(session.plan, session.breakdown).text;
+  if (recon) out.push('## 📋 Plan vs actual', recon);
+
   const other = allFlags.filter(f => !/BEST|matched|PHASE ADVANCED/i.test(f));
   out.push('## 🚩 Coach Flags');
   out.push(other.length ? other.map(f => `- ${f}`).join('\n') : '_None._');
@@ -144,7 +175,12 @@ function deterministicSummary(session, catalogue) {
   // Surface the key actionable flags as short takeaways so the offline debrief
   // is useful, not just a data dump.
   const takeaways = [];
-  if (other.some(f => /first-length gap/i.test(f))) takeaways.push('- Attack the wall push-off (streamline + breakout timing) — the first length is your gap.');
+  // Only surface push-off/turn work when the engine judged the split gap
+  // ANOMALOUS. A normal dead-stop-L1 vs turn-aided-L2 difference is physics,
+  // and auto-appending this takeaway every session is what made the athlete
+  // tune the finding out entirely.
+  if (other.some(f => /^Turn conversion:/i.test(f))) takeaways.push('- The turn isn\'t paying — tighten the streamline and hold it longer before the breakout.');
+  if (other.some(f => /^Split imbalance:/i.test(f))) takeaways.push('- Your first length is drifting off your standing-start best — attack L1 rather than pacing it.');
   if (other.some(f => /cool-down hr/i.test(f))) takeaways.push('- Hold the every-5 / hypoxic breathing through the cool-down — CO2 tolerance is the limiter.');
   if (other.some(f => /rest too short/i.test(f))) takeaways.push('- Take the full ≥120s rest on max reps — it protects speed quality and the quad.');
   const rawNotes = (session.athlete_feedback ?? '').trim();

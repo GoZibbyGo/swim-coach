@@ -89,28 +89,95 @@ function fiftyReps(intervals) {
 // equipment / rep_class.
 // ──────────────────────────────────────────────────────────────────────────
 
-export function buildPlanTags(plan, breakdown) {
-  const tags = new Map();
-  if (!plan || !Array.isArray(plan.blocks) || !Array.isArray(breakdown) || !breakdown.length) return tags;
+// Shared greedy walk: assign ACTUAL intervals to plan blocks in order, each
+// block consuming intervals until it reaches ~its prescribed volume. Returns
+// one entry per plan block (with an empty interval list once the actual data
+// runs out). Both buildPlanTags and buildPlanReconciliation ride on this so
+// the two can never disagree about which rep belonged to which block.
+function walkPlanBlocks(plan, breakdown) {
+  const out = [];
+  if (!plan || !Array.isArray(plan.blocks) || !Array.isArray(breakdown)) return out;
   let idx = 0;
   for (const block of plan.blocks) {
     const sets = Array.isArray(block.sets) ? block.sets : [];
+    const blockVol = sets.reduce((t, x) => t + (Number(x?.reps) || 1) * (Number(x?.distance_m) || 0), 0)
+      || Number(block.volume_m) || 0;
+    const intervals = [];
+    let consumed = 0;
+    while (idx < breakdown.length && blockVol > 0 && consumed < blockVol * 0.9) {
+      intervals.push(breakdown[idx]);
+      consumed += Number(breakdown[idx].distance_m) || 0;
+      idx++;
+    }
+    out.push({ block, sets, blockVol, intervals, actual_m: consumed });
+  }
+  return out;
+}
+
+export function buildPlanTags(plan, breakdown) {
+  const tags = new Map();
+  if (!Array.isArray(breakdown) || !breakdown.length) return tags;
+  for (const { block, sets, intervals } of walkPlanBlocks(plan, breakdown)) {
     // Use the first non-null equipment / rep_class in the block's sets — if
     // the block has heterogeneous sets, this is a best-effort tag.
     const equipment = sets.find(x => x && x.equipment)?.equipment ?? null;
     const repClass = sets.find(x => x && x.rep_class)?.rep_class ?? null;
-    const blockVol = sets.reduce((t, x) => t + (Number(x?.reps) || 1) * (Number(x?.distance_m) || 0), 0)
-      || Number(block.volume_m) || 0;
-    if (blockVol === 0 || idx >= breakdown.length) continue;
-    let consumed = 0;
-    while (idx < breakdown.length && consumed < blockVol * 0.9) {
-      const iv = breakdown[idx];
+    for (const iv of intervals) {
       tags.set(iv.n, { equipment, rep_class: repClass, block_name: block.name ?? null });
-      consumed += Number(iv.distance_m) || 0;
-      idx++;
     }
   }
   return tags;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Plan ↔ actual reconciliation.
+//
+// The feedback LLM used to receive only a FLAT list of intervals plus an
+// instruction to "go block by block" — so it had to infer where the warm-up
+// ended and the main set began, and it inferred wrong, producing "you did X
+// but the plan said Y" complaints about sessions the athlete swam correctly.
+// This computes the mapping deterministically so the LLM never has to.
+// ──────────────────────────────────────────────────────────────────────────
+
+export function buildPlanReconciliation(plan, breakdown) {
+  const rows = [];
+  if (!plan || !Array.isArray(plan.blocks) || !Array.isArray(breakdown) || !breakdown.length) {
+    return { rows, text: '' };
+  }
+  for (const { block, sets, blockVol, intervals, actual_m } of walkPlanBlocks(plan, breakdown)) {
+    const prescribed = sets.length
+      ? sets.map(s => `${Number(s.reps) || 1}×${Number(s.distance_m) || 0}m`
+          + `${s.effort ? ` ${s.effort}` : ''}`
+          + `${s.rest_s != null ? ` @${s.rest_s}s` : ''}`).join(' + ')
+      : `${blockVol}m`;
+    const ns = intervals.map(i => i.n);
+    const intRange = ns.length
+      ? (ns.length === 1 ? `INT ${ns[0]}` : `INT ${ns[0]}–${ns[ns.length - 1]}`)
+      : '—';
+    // Group the actual reps by distance so the line reads like a set, not a list.
+    const counts = new Map();
+    for (const iv of intervals) {
+      const d = Number(iv.distance_m) || 0;
+      counts.set(d, (counts.get(d) ?? 0) + 1);
+    }
+    const actualDesc = counts.size
+      ? [...counts.entries()].map(([d, c]) => `${c}×${d}m`).join(' + ')
+      : 'nothing recorded';
+    const delta = actual_m - blockVol;
+    // Tolerance: one 25m length, or 10% of the block, whichever is larger.
+    const tol = Math.max(25, blockVol * 0.1);
+    const status = !ns.length ? '⚠ no matching intervals recorded'
+      : Math.abs(delta) <= tol ? '✓ swum as prescribed'
+      : `⚠ ${delta > 0 ? '+' : '−'}${Math.abs(delta)}m vs plan`;
+    rows.push({
+      block_name: block.name ?? '(block)', prescribed, prescribed_m: blockVol,
+      interval_range: intRange, actual: actualDesc, actual_m, status,
+    });
+  }
+  const text = rows.map(r =>
+    `- ${r.block_name}: prescribed ${r.prescribed} (${r.prescribed_m}m) → ${r.interval_range}, actually swam ${r.actual} (${r.actual_m}m) — ${r.status}`
+  ).join('\n');
+  return { rows, text };
 }
 
 // Given a "INT 33.1" or "INT 22" style context and a Map of plan tags,
@@ -273,22 +340,62 @@ export function detectTechnical(parsed, opts = {}) {
     }
   }
 
-  // ── First-length gap (push-off / wall): compare each rep's first length to
-  // its second, across ALL multi-length freestyle reps — 50s, 100s, 200s, any
-  // subtype — not just 50m reps. The fallback feedback path relies entirely on
-  // engine flags, so this must fire whenever the pattern is in the data.
+  // ── Turn conversion (formerly "first-length gap").
+  //
+  // In a 25m pool, L1 of any 50m+ rep is a push start from a DEAD STOP at the
+  // wall; L2+ is turn-aided, entered with velocity. L2 being faster is normal
+  // PHYSICS, not a defect. The old rule flagged any gap ≥0.5s — but the normal
+  // advantage at this athlete's level is ~0.5–1.2s, so it fired on essentially
+  // every session with 50m+ reps and trained the athlete to tune the finding
+  // out. What's actually coachable is a gap OUTSIDE the normal band:
+  //   < 0.4s  → the turn isn't converting momentum (streamline / breakout)
+  //   > 1.8s  → L1 is being paced, or L2 is over-glided
+  // Inside the band we say NOTHING.
+  //
+  // Also: group by rep DISTANCE and judge only the dominant group. Averaging a
+  // sprint 50's L1/L2 together with an aerobic 100's L1/L2 is the same
+  // mixed-rep_class error round 5 fixed elsewhere, and produces a number that
+  // describes no actual set.
+  const TURN_ADVANTAGE_MIN_S = 0.4;
+  const TURN_ADVANTAGE_MAX_S = 1.8;
   const multiLen = intervals.filter(i =>
     !i.is_rest && !isDrillInterval(i) &&
     (i.lengths?.length ?? 0) >= 2 &&
     i.lengths[0]?.is_freestyle && !i.lengths[0]?.is_drill && i.lengths[0]?.time_s != null &&
     i.lengths[1]?.is_freestyle && !i.lengths[1]?.is_drill && i.lengths[1]?.time_s != null);
   if (multiLen.length >= 2) {
-    const l1 = avg(multiLen.map(i => i.lengths[0].time_s));
-    const l2 = avg(multiLen.map(i => i.lengths[1].time_s));
-    if (l1 != null && l2 != null) {
-      const gap = round1(l1 - l2);
-      if (gap >= 0.5) {
-        flags.push(`First-length gap: L1 avg ${round1(l1)}s vs L2 avg ${round1(l2)}s (${gap}s slower off the wall) across ${multiLen.length} reps — wall push-off is the gap.`);
+    // Dominant distance group: most reps wins; ties break to the SHORTER
+    // distance (more likely to be the quality work we care about).
+    const byDist = new Map();
+    for (const i of multiLen) {
+      const d = Number(i.distance_m) || (i.lengths.length * 25);
+      if (!byDist.has(d)) byDist.set(d, []);
+      byDist.get(d).push(i);
+    }
+    const [dist, group] = [...byDist.entries()]
+      .sort((a, b) => (b[1].length - a[1].length) || (a[0] - b[0]))[0];
+    if (group.length >= 2) {
+      const l1 = avg(group.map(i => i.lengths[0].time_s));
+      const l2 = avg(group.map(i => i.lengths[1].time_s));
+      if (l1 != null && l2 != null) {
+        const gap = round1(l1 - l2);
+        const ctx = `${group.length}×${dist}m (L1 avg ${round1(l1)}s, L2 avg ${round1(l2)}s)`;
+        if (gap < TURN_ADVANTAGE_MIN_S) {
+          const how = gap <= 0
+            ? `L2 is ${round1(Math.abs(gap))}s SLOWER than L1`
+            : `L2 is only ${gap}s faster than L1`;
+          flags.push(`Turn conversion: across ${ctx}, ${how}. L1 is a dead-stop push start and L2 is turn-aided, so L2 should be ~0.5–1.2s quicker — the turn isn't paying. Tighten the streamline and hold it longer before the breakout.`);
+        } else if (gap > TURN_ADVANTAGE_MAX_S) {
+          // Disambiguate using the athlete's own standing-start 25m best: L1 of
+          // a 50 is the SAME effort as a standalone 25. If L1 is close to that
+          // best, the turn/L2 is the outlier; if L1 is far off it, they're
+          // pacing the first length instead of attacking it.
+          const ssBest = opts.rollingBests?.best_25m_sprint_protocol_s ?? null;
+          const detail = (ssBest != null && dist === 50 && l1 - ssBest > 1.5)
+            ? `L1 is also ${round1(l1 - ssBest)}s off your standing-start 25m best (${ssBest}s) — you're pacing the first length rather than attacking it.`
+            : 'Either the first length is being paced or the breakout off the turn is over-glided.';
+          flags.push(`Split imbalance: across ${ctx}, L2 is ${gap}s faster than L1 — beyond the ~0.5–1.2s a turn normally buys. ${detail}`);
+        }
       }
     }
   }
@@ -374,7 +481,9 @@ export function detectTechnical(parsed, opts = {}) {
 export function detectFlags(parsed, catalogue, opts = {}) {
   const rollingBests = catalogue?.rolling_bests ?? {};
   const rec = detectRecords(parsed, rollingBests, opts);
-  const tech = detectTechnical(parsed, opts);
+  // Technical checks need the rolling bests too — the turn-conversion check
+  // disambiguates a large split gap against the standing-start 25m best.
+  const tech = detectTechnical(parsed, { ...opts, rollingBests });
   return {
     flags: [...rec.flags, ...tech.flags],
     new_records: rec.newRecords,
