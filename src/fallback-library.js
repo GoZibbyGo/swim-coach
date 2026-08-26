@@ -518,15 +518,36 @@ function cueFor(key, seed, activeFlags) {
   return cue;
 }
 
-function targetLineFor(blockName, subtype, targets) {
+function targetLineFor(blockName, subtype, targets, sets = []) {
   const n = blockName.toLowerCase();
+  // The block's dominant rep distance decides WHICH target applies. Quoting a
+  // 25m target ("beat 16.8s") against a block of 50m reps is the target-ladder
+  // mismatch the athlete flagged in round 4 — the number is right for a length
+  // but wrong for the rep being prescribed.
+  const dists = sets.map(s => Number(s?.distance_m)).filter(d => Number.isFinite(d) && d > 0);
+  const repDist = dists.length
+    ? dists.sort((a, b) => dists.filter(x => x === b).length - dists.filter(x => x === a).length || a - b)[0]
+    : null;
   if (subtype === 'sprint' || subtype === 'race_pace') {
     // Match ANY main block, not just one literally named "Sprint Main Set" —
     // the archetype templates name theirs "Main Set — Broken 50s" etc., and
     // they were silently shipping with no target line.
     if (n.includes('main') || n.includes('sprint finish')) {
       const parts = [];
-      if (targets.beat_25m_s != null) parts.push(`beat ${targets.beat_25m_s}s (aim sub-${targets.stretch_25m_s}s)`);
+      if (repDist === 50) {
+        // Prefer the reconciled implied-50 (2×stretch + turn cost) for a sprint
+        // session; race_pace carries its own measured 50m ladder.
+        const t50 = subtype === 'race_pace'
+          ? (targets.stretch_50m_s ?? targets.implied_50m_from_stretch_s)
+          : (targets.implied_50m_from_stretch_s ?? targets.stretch_50m_s);
+        if (t50 != null) parts.push(`hold ${t50}s per 50`);
+      } else if (repDist != null && repDist > 50) {
+        // 75s/100s in a sprint main set are speed-endurance — effort and
+        // stroke discipline, not a per-length PR chase.
+        parts.push('near-max, even splits');
+      } else if (targets.beat_25m_s != null) {
+        parts.push(`beat ${targets.beat_25m_s}s (aim sub-${targets.stretch_25m_s}s)`);
+      }
       if (targets.sprint_swolf_target != null) parts.push(`SWOLF ${targets.sprint_swolf_target}`);
       if (targets.stroke_count_target != null) parts.push(`${targets.stroke_count_target} strokes/length`);
       return parts.length ? `Target: ${parts.join(' · ')}` : null;
@@ -594,7 +615,7 @@ export function buildFallbackSession(decision, catalogue, opts = {}) {
       name: b.name,
       volume_m,
       cue: cueFor(b.cue_key, seed, active_flags),
-      target: targetLineFor(b.name, subtype, targets),
+      target: targetLineFor(b.name, subtype, targets, sets),
       sets,
     };
   });

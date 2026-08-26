@@ -281,3 +281,25 @@ test('block number actually changes the template pick (seed must not cancel out)
   assert.ok(picks.size >= 4,
     `varying only the block number should reach several templates, got ${picks.size}: ${[...picks].join(', ')}`);
 });
+
+test('target line matches the block\'s rep DISTANCE, not always the 25m number', () => {
+  // Round-4 target-ladder fidelity, applied to the fallback path: a block of
+  // 50m reps was quoting "beat 16.8s", which is a 25m target.
+  const ids = ['sprint_race_sim', 'sprint_speed_endurance', 'sprint_volume', 'sprint_broken_50s',
+    'sprint_race_pace_25s', 'sprint_pyramid', 'sprint_descending_ladder'];
+  const decision = { type: 'pool', subtype: 'sprint', block_number: 1, session_in_block: 1, active_flags: [] };
+  const { session } = buildFallbackSession(decision, catalogue(), {
+    date: '2026-05-20', recentTemplateIds: ids.filter(x => x !== 'sprint_broken_50s'),
+  });
+  const main = session.blocks.find(b => /main/i.test(b.name));
+  assert.match(main.sets[0].effort, /broken/, 'expected the broken-50s main set');
+  assert.match(main.target, /per 50/, `50m reps must get a 50m target, got: ${main.target}`);
+  assert.ok(!/beat 16\.8s/.test(main.target), 'must not quote the 25m target on a 50m rep');
+
+  // A 25m main set still gets the 25m ladder.
+  const { session: s25 } = buildFallbackSession(decision, catalogue(), {
+    date: '2026-05-20', recentTemplateIds: ids.filter(x => x !== 'sprint_volume'),
+  });
+  const main25 = s25.blocks.find(b => /main/i.test(b.name));
+  assert.match(main25.target, /beat 16\.8s/);
+});
