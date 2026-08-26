@@ -58,6 +58,76 @@ const POOL_TEMPLATES = {
         { name: 'Cool-Down', cue_key: 'cooldown', sets: [{ reps: 12, distance_m: 25, effort: 'easy', rest_s: 0, breathing: 'every-5' }] },
       ],
     },
+
+    // ── Structurally distinct sprint templates (added v31). The three above
+    // are all "N×25 max + a few 50s" with N = 10/12/16 — rotation between them
+    // barely changes the session. These give the fallback path genuine variety
+    // and cover the speed-endurance middle the programme was missing.
+    {
+      id: 'sprint_broken_50s',
+      archetype_id: 'broken_50s',
+      blocks: [
+        { name: 'Warm-Up', cue_key: 'warmup', sets: [{ reps: 4, distance_m: 100, effort: 'easy', rest_s: 15 }] },
+        { name: 'Drill Block', cue_key: 'turn_focus', sets: [{ reps: 8, distance_m: 25, effort: 'drill', rest_s: 25, drill: '3 strokes then flip (away from the wall)' }] },
+        { name: 'Priming Set', cue_key: 'priming', sets: [{ reps: 4, distance_m: 25, effort: 'build 70-100%', rest_s: 90 }] },
+        { name: 'Main Set — Broken 50s', cue_key: 'speed_endurance', sets: [
+          { reps: 8, distance_m: 50, effort: 'near-max, broken at the 25 (pause 10s mid-rep)', rest_s: 150, rep_class: 'speed_endurance' },
+        ] },
+        { name: 'Sprint Finish', cue_key: 'sprint_finish', sets: [{ reps: 6, distance_m: 25, effort: 'max', rest_s: 120, rep_class: 'max_alactic' }] },
+        { name: 'Aerobic Flush', cue_key: 'recovery_main', sets: [{ reps: 3, distance_m: 100, effort: 'easy', rest_s: 20, rep_class: 'aerobic' }] },
+        { name: 'Cool-Down', cue_key: 'cooldown', sets: [{ reps: 8, distance_m: 25, effort: 'easy', rest_s: 0, breathing: 'every-5' }] },
+      ],
+    },
+    {
+      id: 'sprint_race_pace_25s',
+      archetype_id: 'race_pace_25s',
+      blocks: [
+        { name: 'Warm-Up', cue_key: 'warmup', sets: [{ reps: 4, distance_m: 100, effort: 'easy', rest_s: 15 }] },
+        { name: 'Kick Block', cue_key: 'kick', sets: [{ reps: 6, distance_m: 50, effort: 'controlled flutter kick (board)', rest_s: 25, rep_class: 'aerobic' }] },
+        { name: 'Priming Set', cue_key: 'priming', sets: [{ reps: 4, distance_m: 25, effort: 'build 70-100%', rest_s: 90 }] },
+        { name: 'Main Set — Race-Pace 25s', cue_key: 'race_pace_25', sets: [
+          { reps: 10, distance_m: 25, effort: 'hold your goal-50 split', rest_s: 120, rep_class: 'speed_endurance' },
+        ] },
+        { name: 'Speed Endurance', cue_key: 'speed_endurance', sets: [{ reps: 4, distance_m: 50, effort: 'near-max', rest_s: 150, rep_class: 'speed_endurance' }] },
+        { name: 'Aerobic Flush', cue_key: 'recovery_main', sets: [{ reps: 3, distance_m: 100, effort: 'easy', rest_s: 20, rep_class: 'aerobic' }] },
+        { name: 'Cool-Down', cue_key: 'cooldown', sets: [{ reps: 8, distance_m: 25, effort: 'easy', rest_s: 0, breathing: 'every-5' }] },
+      ],
+    },
+    {
+      id: 'sprint_pyramid',
+      archetype_id: 'sprint_pyramid',
+      blocks: [
+        { name: 'Warm-Up', cue_key: 'warmup', sets: [{ reps: 4, distance_m: 100, effort: 'easy', rest_s: 15 }] },
+        { name: 'Drill Block', cue_key: 'drill_catch', sets: [{ reps: 8, distance_m: 25, effort: 'drill', rest_s: 25, drill: 'catch-up + fist' }] },
+        { name: 'Priming Set', cue_key: 'priming', sets: [{ reps: 4, distance_m: 25, effort: 'build 70-100%', rest_s: 90 }] },
+        { name: 'Main Set — Sprint Pyramid', cue_key: 'sprint_main', sets: [
+          { reps: 2, distance_m: 25, effort: 'max', rest_s: 120, rep_class: 'max_alactic' },
+          { reps: 2, distance_m: 50, effort: 'max', rest_s: 150, rep_class: 'speed_endurance' },
+          { reps: 2, distance_m: 75, effort: 'max', rest_s: 180, rep_class: 'speed_endurance' },
+          { reps: 2, distance_m: 50, effort: 'max', rest_s: 150, rep_class: 'speed_endurance' },
+          { reps: 2, distance_m: 25, effort: 'max', rest_s: 120, rep_class: 'max_alactic' },
+        ] },
+        { name: 'Aerobic Flush', cue_key: 'recovery_main', sets: [{ reps: 3, distance_m: 100, effort: 'easy', rest_s: 20, rep_class: 'aerobic' }] },
+        { name: 'Cool-Down', cue_key: 'cooldown', sets: [{ reps: 8, distance_m: 25, effort: 'easy', rest_s: 0, breathing: 'every-5' }] },
+      ],
+    },
+    {
+      id: 'sprint_descending_ladder',
+      archetype_id: 'descending_ladder',
+      blocks: [
+        { name: 'Warm-Up', cue_key: 'warmup', sets: [{ reps: 4, distance_m: 100, effort: 'easy', rest_s: 15 }] },
+        { name: 'Drill Block', cue_key: 'drill_pushoff', sets: [{ reps: 8, distance_m: 25, effort: 'drill', rest_s: 25, drill: 'wall push-off glide' }] },
+        { name: 'Main Set — Descending Ladder', cue_key: 'speed_endurance', sets: [
+          { reps: 2, distance_m: 100, effort: 'strong', rest_s: 90, rep_class: 'speed_endurance' },
+          { reps: 2, distance_m: 75, effort: 'faster', rest_s: 90, rep_class: 'speed_endurance' },
+          { reps: 2, distance_m: 50, effort: 'faster again', rest_s: 120, rep_class: 'speed_endurance' },
+          { reps: 2, distance_m: 25, effort: 'max', rest_s: 120, rep_class: 'max_alactic' },
+        ] },
+        { name: 'Sprint Finish', cue_key: 'sprint_finish', sets: [{ reps: 4, distance_m: 25, effort: 'max', rest_s: 120, rep_class: 'max_alactic' }] },
+        { name: 'Aerobic Flush', cue_key: 'recovery_main', sets: [{ reps: 3, distance_m: 100, effort: 'easy', rest_s: 20, rep_class: 'aerobic' }] },
+        { name: 'Cool-Down', cue_key: 'cooldown', sets: [{ reps: 8, distance_m: 25, effort: 'easy', rest_s: 0, breathing: 'every-5' }] },
+      ],
+    },
   ],
 
   threshold: [
@@ -361,6 +431,18 @@ const CUES = {
     'Max force into the wall, tight streamline, push and glide — no dolphin kick. Ride it to a near-stop.',
     'Load the push-off pattern: streamline, no dolphin kick today, glide long. Monitor the quad; stop on any tightness.',
   ],
+  kick: [
+    'Flutter from the hips, not the knees — small, fast, continuous. Toes pointed, ankles loose. ⚠️ Flutter only, no dolphin. Stop immediately on any quad tightness.',
+    'Kick is ~30% of your propulsion and it has been the missing piece. Hip-driven and controlled — this is fitness work, not a max effort. Stop on any quad tightness.',
+  ],
+  turn_focus: [
+    'Three strokes then flip, away from the wall. Tight tuck, fast roll, feet planted flat. The turn is 20–30% of a short-course race.',
+    'Into the wall with speed, immediate rotation off the plant, hands locked in streamline until the first pull. No dolphin kick — just push and glide.',
+  ],
+  race_pace_25: [
+    'Hold the goal-50 split on every rep — not "fast", the actual number. If you drift more than 0.3s off it, take extra rest.',
+    'This is what sub-30 feels like per length. Learn the pace, then make it repeatable.',
+  ],
   drill_catch: [
     'Feel the forearm catch — pressure on the forearm, not just the hand. High elbow on entry.',
     'Slow and deliberate. Connect the catch to your rotation; this is feel work, not speed.',
@@ -430,7 +512,7 @@ function cueFor(key, seed, activeFlags) {
   if (!variants) return null;
   let cue = variants[pickIndex(seed, variants.length)];
   // Reinforce quad protection on push-off cues when a quad flag is active.
-  if (key === 'drill_pushoff' && [...QUAD_FLAGS].some(f => activeFlags.includes(f))) {
+  if (['drill_pushoff', 'turn_focus', 'kick'].includes(key) && [...QUAD_FLAGS].some(f => activeFlags.includes(f))) {
     cue += ' ⚠️ Quad flag active — if you feel any tightness in either quad, stop the drill immediately.';
   }
   return cue;
@@ -439,7 +521,10 @@ function cueFor(key, seed, activeFlags) {
 function targetLineFor(blockName, subtype, targets) {
   const n = blockName.toLowerCase();
   if (subtype === 'sprint' || subtype === 'race_pace') {
-    if (n.includes('sprint main') || n.includes('sprint finish')) {
+    // Match ANY main block, not just one literally named "Sprint Main Set" —
+    // the archetype templates name theirs "Main Set — Broken 50s" etc., and
+    // they were silently shipping with no target line.
+    if (n.includes('main') || n.includes('sprint finish')) {
       const parts = [];
       if (targets.beat_25m_s != null) parts.push(`beat ${targets.beat_25m_s}s (aim sub-${targets.stretch_25m_s}s)`);
       if (targets.sprint_swolf_target != null) parts.push(`SWOLF ${targets.sprint_swolf_target}`);
@@ -486,7 +571,13 @@ export function buildFallbackSession(decision, catalogue, opts = {}) {
   const phase = catalogue?.training_phase?.current ?? 1;
   const date = opts.date ?? today();
   const recentIds = opts.recentTemplateIds ?? [];
-  const seed = (block_number * 7) + session_in_block; // deterministic variety
+  // Deterministic variety. The multipliers must not share a factor with the
+  // template-pool sizes, or the block number cancels out of `seed % len`.
+  // This was previously `block_number * 7 + session_in_block`, which — once the
+  // sprint pool reached 7 templates — reduced to `session_in_block % 7`: block 1
+  // session 1 and block 9 session 1 got the SAME template forever. 31 and 17 are
+  // coprime to every current pool size (1, 2, 5, 7).
+  const seed = (block_number * 31) + (session_in_block * 17);
 
   if (type === 'dryland') {
     return buildFallbackDryland(decision, catalogue, { ...opts, date, phase, seed });
@@ -516,6 +607,10 @@ export function buildFallbackSession(decision, catalogue, opts = {}) {
     source: 'app_generated',
     generator: 'fallback_library',
     template_id: template.id,
+    // Templates carry an archetype where one applies, so main-set rotation
+    // works across BOTH paths — an LLM session and a fallback session that
+    // used the same architecture now count as the same thing.
+    archetype_id: template.archetype_id ?? null,
   };
   return { session, template_id: template.id };
 }

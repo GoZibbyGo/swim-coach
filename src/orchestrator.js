@@ -21,6 +21,7 @@ import { buildFallbackSession } from './fallback-library.js';
 import { guidanceForFlags } from './flag-rules.js';
 import { callGemini } from './gemini.js';
 import { phaseHasSprintFinish } from './phases.js';
+import { archetypeMenuText, recentArchetypeIds, archetypeById } from './set-archetypes.js';
 
 function today() { return new Date().toISOString().slice(0, 10); }
 
@@ -64,8 +65,8 @@ function equipmentInstruction(equipmentAvailable) {
 const SESSION_CONTRACT = `Return ONLY JSON matching:
 {
   "blocks": [
-    { "name": string, "volume_m": number, "cue": string, "target": string|null,
-      "sets": [ { "reps": number, "distance_m": number, "effort": string, "rest_s": number, "drill"?: string, "breathing"?: string } ] }
+    { "name": string, "volume_m": number, "cue": string, "target": string|null, "archetype_id"?: string,
+      "sets": [ { "reps": number, "distance_m": number, "effort": string, "rest_s": number, "rep_class": string, "drill"?: string, "breathing"?: string, "equipment"?: string } ] }
   ]
 }
 Rules: warm-up + main set + cool-down are required. **BLOCK NAMES ARE CHECKED LITERALLY:** the warm-up block's name must contain "warm", the primary work block's name must contain "main" (e.g. "Main Set — Sprints", "Main Set: 4×100 threshold"), and the cool-down block's name must contain "cool". You may still add extra descriptive blocks (drill, primer, sprint finish) — just don't name your main block something creative like "Sprint Power & Race Pace" without also including "Main". Every block MUST contain at least one real set (reps×distance) — never emit an empty block. Distances MUST add up exactly (each block.volume_m = sum of reps×distance; you will be rejected otherwise). Sprint/max reps need rest_s >= 120. Threshold reps over 400m need rest_s >= 30. For progressive-build sets, write effort as "build 70-100%" or "build" (or name the block "Primer") — those are exempt from the sprint-rest rule because only the last rep hits full effort. Never prescribe dolphin kick if a quad flag is active.
@@ -122,13 +123,20 @@ export function buildPrompt(decision, catalogue, targets, opts = {}) {
     '- Honour STANDING ATHLETE PREFERENCES extracted from recent notes (see "Recent athlete notes" below). If the athlete has modified the same block in their last two sessions (e.g. swapped the cool-down to 4×50 with 20s rest and a low-stroke focus), incorporate that into this session\'s prescription rather than repeating the unwanted version.',
     '- TARGET-LADDER FIDELITY: the deterministic core hands you one authoritative "Targets to embed" object per session with the exact numbers to use (beat_25m_s, stretch_25m_s, implied_50m_from_stretch_s, sprint_swolf_target, stroke_count_target, phase_25m_target_s, and for race_pace the beat_50m_s / stretch_50m_s / phase_50m_target_s). RESTATE those numbers verbatim in your cue and target lines — never invent, round, or re-derive them. In a sprint session prescribing 50m reps, the 50m target MUST be `implied_50m_from_stretch_s` (which reconciles with 2×stretch_25m_s − turn savings). Do NOT quote the phase_50m_target_s in a sprint session\'s 50m cue — that\'s the long-horizon aspiration, not the per-session prescription.',
     '- In a TECHNIQUE session during a sprint-priority phase (Phase 1), bias at least one main sub-set toward FAST, LOW-STROKE-COUNT 25s (speed-technique) rather than making the whole main set 100m aerobic pulling. Long aerobic pull sets belong in threshold sessions; technique in a sprint phase should train stroke-count discipline at speed.',
-    '- REP-CLASS TAXONOMY: every set you emit MUST include a `rep_class` field from {max_alactic, speed_technique, build_finish, aerobic, drill}. The rest you prescribe must satisfy that class\'s minimum: max_alactic ≥120s, speed_technique 45–60s, build_finish 60–90s, aerobic ≥15s, drill ≥15s. NEVER label a set "max" (max_alactic) unless you are also giving it full alactic recovery (≥120s). Threshold/aerobic sets are NOT max_alactic even if the reps are short.',
+    '- REP-CLASS TAXONOMY: every set you emit MUST include a `rep_class` field from {max_alactic, speed_endurance, speed_technique, build_finish, aerobic, drill}. The rest you prescribe must satisfy that class\'s minimum: max_alactic ≥120s, speed_endurance 60–180s, speed_technique 45–60s, build_finish 60–90s, aerobic ≥15s, drill ≥15s. NEVER label a set "max" (max_alactic) unless you are also giving it full alactic recovery (≥120s). Threshold/aerobic sets are NOT max_alactic even if the reps are short.',
+    '- COVER THE SPEED-ENDURANCE MIDDLE: the 50m freestyle is a ~30–35s effort, which is glycolytic — not purely alactic. A programme of only max 25s (alactic) plus threshold work leaves the event\'s actual energy system untrained, producing a fast 25 that dies in the back half. Across a block, at least one pool session\'s main set should be `speed_endurance` (race-pace 25s at goal tempo, broken 50s, 50s at ~1:4 work:rest, or a sprint pyramid).',
+    '- ARCHETYPE SELECTION: choose ONE archetype from the menu below as the spine of the main set and echo its id in the main block\'s `archetype_id` field. Never pick one listed as already used in this rotation. Adapt rep counts to hit the volume band, but keep the architecture recognisable — a "broken 50s" that is really just 4×50 straight is not the archetype.',
     '- POST-LAYOFF RE-ENTRY: when the "Targets to embed" object has `re_entry: true` (>10 days since the last pool session, so today\'s numbers are de-rated by 2.5%), say so in the session cue ("re-entry session — first swim back in N days"), frame the targets as re-entry benchmarks (not PR attempts), and cap the sprint main set at 3–4 max reps rather than a full 8-rep block.',
     '- ANTI-REPETITION WITHIN A BLOCK: no two pool sessions of the same subtype in a single 4-session block may share the same main-set architecture. If the previous same-subtype session used pull-buoy 100s + fast 25s, the next one MUST use a different structure (descending stroke-count ladders, negative-split 50s, broken 100s, etc.). The "Your most recent MAIN SET was:" line tells you what to differ FROM.',
     '- SPRINT WARM-UP CAP: in a SPRINT session, keep the warm-up + priming to ≤30% of total prescribed volume. The majority of the session must be quality work. A 700m warm-up in a 1700m sprint session is 42% — too much.',
     opts.knowledge ? `\nDomain context:\n${opts.knowledge}` : '',
     `\n${SESSION_CONTRACT}`,
   ].join('\n');
+
+  // Explicit archetype menu + the ones already used this rotation. Without a
+  // named vocabulary the model kept converging on the same few shapes.
+  const archetypeMenu = archetypeMenuText(
+    decision.subtype, phase, recentArchetypeIds(catalogue, decision.subtype));
 
   const range = volumeTargetsForPhase(phase, decision.subtype) ?? POOL_VOLUME_TARGETS_M[decision.subtype];
   const volumeLine = range
@@ -152,6 +160,7 @@ export function buildPrompt(decision, catalogue, targets, opts = {}) {
     pending ? `Recent feedback adjustments to honour: ${JSON.stringify({ intensity: pending.intensity, volume: pending.volume, recovery_tilt: pending.recovery_tilt, technique_focus: pending.technique_focus })}.` : '',
     recent ? `Recent sessions (avoid repeating the last 2 main-set structures): ${recent}.` : '',
     lastMainDesc ? `Your last ${recentMains.length} ${decision.subtype} MAIN SET(s), newest first:\n  ${lastMainDesc}\nMake THIS session's main set structurally DIFFERENT from ALL of them — not just the newest. Returning to the shape from two sessions ago still counts as repeating.` : '',
+    archetypeMenu,
     recentNotes ? `Recent athlete notes (honour standing preferences; react to injury updates):\n${recentNotes}` : '',
   ].filter(Boolean).join('\n');
 
@@ -171,10 +180,16 @@ function assembleLlmSession(parsedJson, decision, catalogue, targets, date) {
     return { ...b, volume_m };
   });
   const total = blocks.reduce((s, b) => s + b.volume_m, 0);
+  // Archetype the LLM declared on the main block — recorded so the next
+  // generation can rotate off it. Only accept ids we actually know; a
+  // hallucinated id would poison the rotation rather than help it.
+  const declared = blocks.map(b => b.archetype_id).find(Boolean) ?? null;
+  const archetype_id = declared && archetypeById(declared) ? declared : null;
   return {
     date,
     type: decision.type,
     subtype: decision.subtype,           // deterministic — not the LLM's call
+    archetype_id,
     phase: catalogue?.training_phase?.current ?? 1,
     block_number: decision.block_number,
     session_in_block: decision.session_in_block,

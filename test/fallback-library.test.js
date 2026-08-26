@@ -75,8 +75,26 @@ test('respects recentTemplateIds (does not repeat last template)', () => {
 test('sprint session has target lines on sprint blocks', () => {
   const decision = { type: 'pool', subtype: 'sprint', block_number: 1, session_in_block: 1, active_flags: [] };
   const { session } = buildFallbackSession(decision, catalogue(), {});
-  const sprintMain = session.blocks.find(b => b.name === 'Sprint Main Set');
+  const sprintMain = session.blocks.find(b => /main/i.test(b.name));
+  assert.ok(sprintMain, 'a sprint session must have a main block');
   assert.match(sprintMain.target, /beat 16\.8s.*SWOLF 23.*7 strokes/);
+});
+
+test('EVERY sprint template gives its main block a target line', () => {
+  // Regression guard: targetLineFor used to match only the literal name
+  // "Sprint Main Set", so archetype templates named "Main Set — Broken 50s"
+  // shipped with no target at all.
+  const ids = ['sprint_race_sim', 'sprint_speed_endurance', 'sprint_volume', 'sprint_broken_50s',
+    'sprint_race_pace_25s', 'sprint_pyramid', 'sprint_descending_ladder'];
+  for (const id of ids) {
+    const decision = { type: 'pool', subtype: 'sprint', block_number: 1, session_in_block: 1, active_flags: [] };
+    const { session } = buildFallbackSession(decision, catalogue(), {
+      date: '2026-05-20', recentTemplateIds: ids.filter(x => x !== id),
+    });
+    assert.equal(session.template_id, id);
+    const main = session.blocks.find(b => /main/i.test(b.name));
+    assert.ok(main?.target, `${id}: main block "${main?.name}" has no target line`);
+  }
 });
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -212,4 +230,54 @@ test('pool templates are untouched when no availability list is given', () => {
   const decision = { type: 'pool', subtype: 'technique', block_number: 1, session_in_block: 1, active_flags: [] };
   const { session } = buildFallbackSession(decision, catalogue(), { recentTemplateIds: ['technique_efficiency'] });
   assert.equal(session.blocks.find(b => b.name === 'Pull Set').sets[0].equipment, 'pull buoy + paddles');
+});
+
+test('new sprint templates are structurally distinct, not just longer 25s sets', () => {
+  // Regression guard for the "lack of creativity" report: the original three
+  // sprint templates were all "N×25 max + a few 50s" with N = 10/12/16, so
+  // rotating between them barely changed the session.
+  const ids = ['sprint_broken_50s', 'sprint_race_pace_25s', 'sprint_pyramid', 'sprint_descending_ladder'];
+  const shapes = new Set();
+  for (const id of ids) {
+    const others = ['sprint_race_sim', 'sprint_speed_endurance', 'sprint_volume', ...ids].filter(x => x !== id);
+    const decision = { type: 'pool', subtype: 'sprint', block_number: 1, session_in_block: 1, active_flags: [] };
+    const { session } = buildFallbackSession(decision, catalogue(), { date: '2026-05-20', recentTemplateIds: others });
+    assert.equal(session.template_id, id, `expected to pin ${id}`);
+    const main = session.blocks.find(b => /main/i.test(b.name));
+    assert.ok(main, `${id} must have a Main block (validator checks the literal name)`);
+    shapes.add(main.sets.map(s => `${s.reps}x${s.distance_m}`).join('+'));
+    assert.ok(session.archetype_id, `${id} must declare an archetype_id for rotation`);
+  }
+  assert.equal(shapes.size, ids.length, `main sets must be genuinely distinct, got: ${[...shapes].join(' | ')}`);
+});
+
+test('every pool template that names an archetype uses a real one', async () => {
+  const { archetypeById } = await import('../src/set-archetypes.js');
+  const seen = [];
+  for (const subtype of ['sprint', 'threshold', 'technique', 'race_pace', 'recovery']) {
+    for (let i = 0; i < 12; i++) {
+      const decision = { type: 'pool', subtype, block_number: i, session_in_block: 1, active_flags: [] };
+      const { session } = buildFallbackSession(decision, catalogue(), { date: '2026-05-20' });
+      if (session.archetype_id) {
+        assert.ok(archetypeById(session.archetype_id), `unknown archetype ${session.archetype_id}`);
+        seen.push(session.archetype_id);
+      }
+    }
+  }
+  assert.ok(seen.length, 'at least some templates should declare an archetype');
+});
+
+test('block number actually changes the template pick (seed must not cancel out)', () => {
+  // Regression guard: the seed was `block_number * 7 + session_in_block`, and
+  // once the sprint pool reached 7 templates that reduced to
+  // `session_in_block % 7` — so block 1 session 1 and block 8 session 1 got
+  // the identical session forever, with no recentTemplateIds to save them.
+  const picks = new Set();
+  for (let b = 1; b <= 7; b++) {
+    const decision = { type: 'pool', subtype: 'sprint', block_number: b, session_in_block: 1, active_flags: [] };
+    const { session } = buildFallbackSession(decision, catalogue(), { date: '2026-05-20' });
+    picks.add(session.template_id);
+  }
+  assert.ok(picks.size >= 4,
+    `varying only the block number should reach several templates, got ${picks.size}: ${[...picks].join(', ')}`);
 });

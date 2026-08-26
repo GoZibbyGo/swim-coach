@@ -82,7 +82,7 @@ high confidence, no research needed.
   (2.4 s) → paced-L1 flag; reconciliation table matches a known plan+breakdown pair;
   analysis prompt contains the plan text.
 
-## 3. Workstream B — training science + creativity (Task 2, and Task 1d) → ◐ **B0/B3/B4 shipped v30**
+## 3. Workstream B — training science + creativity (Task 2, and Task 1d) → ☑ **SHIPPED (v30 + v31)**
 
 - ☑ **B0 — Research pass (web).** *(v30 — written into `knowledge/swimming-coaching-kb.md`)* Sprint-freestyle development for an adult targeting
   **sub-30 s 50 m in a 25 m pool**, 3 pool + 1 dryland per block. Specifically: kick
@@ -92,21 +92,20 @@ high confidence, no research needed.
   rest added back), race-pace/tempo work without a tempo trainer (stroke-count-per-length
   proxies), and alactic vs lactate-tolerance programming. Write findings to
   `knowledge/` so they're reusable and never re-researched.
-- ☐ **B1 — `src/set-archetypes.js`:** ⬅️ **NEXT UP.** The KB now has the menu (§5, bolded
-  rows + "Rotation mandate"); this turns it into structured data the engine can track. a named catalogue of main-set architectures, each with
+- ☑ **B1 — `src/set-archetypes.js`:** *(v31)* a named catalogue of main-set architectures, each with
   `{ id, name, rep_class, structure, rest_rule, when_to_use, phase_fit, subtype_fit }`.
   This is the creative vocabulary the prompts currently lack.
-- ☐ **B2 — Wire archetypes into the generation prompt** as an explicit menu + "you used
+- ☑ **B2 — Wire archetypes into the generation prompt** as an explicit menu + "you used
   archetypes X, Y in this block — pick a different one."
 - ☑ **B3 — Widen `lastMainDesc` from 1 → last 3 same-subtype sessions** (kills A/B ping-pong).
 - ☑ **B4 — Fix the dead `recentTemplateIds` wiring in `web/app.js`** so the fallback library
   stops repeating templates. (One-line-ish fix, outsized payoff.)
-- ☐ **B5 — Expand `fallback-library.js`** with the new archetypes — fallback sessions must
+- ☑ **B5 — Expand `fallback-library.js`** with the new archetypes — fallback sessions must
   vary too, since that's what ships whenever Gemini fails.
-- ☐ **B6 — Kick / start / turn work as first-class blocks**, honouring the quad constraint.
-- ☐ **B7 — Tests.**
+- ☑ **B6 — Kick / start / turn work as first-class blocks**, honouring the quad constraint.
+- ☑ **B7 — Tests.**
 
-## 4. Workstream C — LLM responsiveness & realism (Task 3) → target **v31**
+## 4. Workstream C — LLM responsiveness & realism (Task 3) → ⬅️ **NEXT SESSION STARTS HERE** (target v32)
 
 Deliberately **last**: C1 restructures the prompts, and doing it before A/B would mean
 rewriting them twice. A does *surgical* prompt edits; C does the full restructure on top.
@@ -147,3 +146,12 @@ rewriting them twice. A does *surgical* prompt edits; C does the full restructur
   `## 0. Non-negotiables` section because the analysis prompt only receives
   `knowledge.slice(0, 5000)` and athlete-critical rules were falling outside it.
   **Next session: start at B1.**
+- **2026-08-26 (session 1, continued).** Shipped **v31** (workstream B complete): `src/set-archetypes.js`
+  (24 archetypes), archetype menu + rotation in the generation prompt, 4 structurally distinct new
+  sprint templates, kick/turn cues. **Two latent bugs surfaced while doing it:** (1) the fallback
+  seed was `block_number * 7 + session_in_block` and the sprint pool had just reached 7 templates,
+  so `seed % 7` cancelled the block number out entirely — block 1 session 1 and block 8 session 1
+  got the identical session forever; (2) `targetLineFor` matched only the literal block name
+  "Sprint Main Set", so every new archetype template ("Main Set — Broken 50s" etc.) would have
+  shipped with **no target line**. Both fixed with regression tests.
+  **Next session: workstream C (C1 prompt restructure first).**

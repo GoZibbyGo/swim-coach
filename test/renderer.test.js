@@ -66,7 +66,17 @@ test('single-rep blocks (warm-ups / continuous swims) omit rest_s in the rendere
 
 test('quad-flag warning appears in rendered push-off cue', () => {
   const decision = { type: 'pool', subtype: 'sprint', block_number: 2, session_in_block: 3, active_flags: ['left_quad_cramp'] };
-  const { session } = buildFallbackSession(decision, catalogue(), { date: '2026-05-20', recentTemplateIds: ['sprint_speed_endurance', 'sprint_volume'] });
+  // Pin to sprint_race_sim (the push-off-drill template) by excluding every
+  // other sprint template — otherwise the seeded pick drifts whenever a
+  // template is added, and this asserts a quad-SAFETY property, so it must be
+  // deterministic. If you add a sprint template, add its id here.
+  const { session } = buildFallbackSession(decision, catalogue(), {
+    date: '2026-05-20',
+    recentTemplateIds: [
+      'sprint_speed_endurance', 'sprint_volume', 'sprint_broken_50s',
+      'sprint_race_pace_25s', 'sprint_pyramid', 'sprint_descending_ladder',
+    ],
+  });
   const md = renderSessionMarkdown(session);
   assert.match(md, /no dolphin kick/i);
   assert.match(md, /Quad flag active/);

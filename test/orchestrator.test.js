@@ -209,3 +209,41 @@ test('prompt cites the last THREE same-subtype main sets, not just one', () => {
   assert.match(userPrompt, /10×25m max/);
   assert.match(userPrompt, /structurally DIFFERENT from ALL of them/);
 });
+
+// ──────────────────────────────────────────────────────────────────────────
+// Main-set archetypes (workstream B1/B2)
+
+test('prompt carries the archetype menu and marks recently-used ones off-limits', () => {
+  const cat = catalogue();
+  cat.sessions = [
+    { id: 2, date: '2026-05-20', type: 'pool', subtype: 'sprint', plan: { archetype_id: 'alactic_25s' } },
+    { id: 1, date: '2026-05-17', type: 'pool', subtype: 'sprint', plan: { archetype_id: 'broken_50s' } },
+  ];
+  const decision = { type: 'pool', subtype: 'sprint', block_number: 2, session_in_block: 3, active_flags: [] };
+  const { userPrompt, systemPrompt } = buildPrompt(decision, cat, {});
+  assert.match(userPrompt, /MAIN-SET ARCHETYPE MENU/);
+  assert.match(userPrompt, /ALREADY USED[\s\S]*alactic_25s/);
+  assert.match(userPrompt, /ALREADY USED[\s\S]*broken_50s/);
+  // A fresh archetype is still offered.
+  assert.match(userPrompt, /speed_endurance_50s/);
+  assert.match(systemPrompt, /ARCHETYPE SELECTION/);
+  assert.match(systemPrompt, /COVER THE SPEED-ENDURANCE MIDDLE/);
+});
+
+test('a declared archetype_id is recorded on the generated session', async () => {
+  const body = JSON.parse(validLlmJson);
+  body.blocks[1].archetype_id = 'broken_50s';
+  const callGeminiFn = async () => ({ ok: true, text: JSON.stringify(body) });
+  const r = await generateSession(catalogue(), { apiKey: 'k', callGeminiFn, date: '2026-05-22' });
+  assert.equal(r.status, 'success');
+  assert.equal(r.session.archetype_id, 'broken_50s');
+});
+
+test('a hallucinated archetype_id is discarded rather than poisoning the rotation', async () => {
+  const body = JSON.parse(validLlmJson);
+  body.blocks[1].archetype_id = 'super_mega_sprint_set';
+  const callGeminiFn = async () => ({ ok: true, text: JSON.stringify(body) });
+  const r = await generateSession(catalogue(), { apiKey: 'k', callGeminiFn, date: '2026-05-22' });
+  assert.equal(r.status, 'success');
+  assert.equal(r.session.archetype_id, null);
+});
