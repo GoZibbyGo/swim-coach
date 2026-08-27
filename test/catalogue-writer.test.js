@@ -215,3 +215,42 @@ test('does not mutate the input catalogue', () => {
   logSession(cat, { type: 'pool', parsed: syntheticPool(15.0), subtype: 'sprint' });
   assert.equal(JSON.stringify(cat), before);
 });
+
+// ──────────────────────────────────────────────────────────────────────────
+// Multi-activity sessions (watch reset mid-swim)
+
+test('a merged session records the seam and is NOT treated as a shortfall', () => {
+  const cat = baseCat();
+  const plan = {
+    total_volume_m: 1000,
+    blocks: [{ name: 'Main Set', sets: [{ reps: 20, distance_m: 50, effort: 'moderate', rest_s: 30 }] }],
+  };
+  // Only 600m of the prescribed 1000m is in the files — the rest was swum
+  // while the watch was being reset.
+  const intervals = Array.from({ length: 12 }, (_, i) => ({
+    interval_number: i + 1, is_rest: false, stroke: 'Freestyle', distance_m: 50, time_s: 40,
+    rest_after_s: 30, swolf: 24, avg_strokes: 8,
+    lengths: [
+      { interval_number: i + 1, length_in_interval: 1, distance_m: 25, time_s: 20, strokes: 8, is_freestyle: true, is_drill: false, glitches: [] },
+      { interval_number: i + 1, length_in_interval: 2, distance_m: 25, time_s: 20, strokes: 8, is_freestyle: true, is_drill: false, glitches: [] },
+    ],
+  }));
+  const parsed = {
+    intervals, lengths: intervals.flatMap(i => i.lengths), glitches: [],
+    summary: { total_distance_m: 600 },
+    merged_from: 2, merge_seams: [6],
+  };
+  const { session: s } = logSession(cat, { type: 'pool', subtype: 'threshold', date: '2026-06-01', parsed, planned: plan });
+  assert.ok(s.coach_flags.some(f => /logged from 2 separate watch activities/.test(f)),
+    `expected a merge data-quality flag, got: ${JSON.stringify(s.coach_flags)}`);
+  assert.ok(s.coach_flags.some(f => /seam after INT 6/.test(f)));
+  assert.ok(!s.coach_flags.some(f => /^Plan deviation: total volume/.test(f)),
+    `a merged session's missing metres are untracked, not skipped: ${JSON.stringify(s.coach_flags)}`);
+});
+
+test('a single-file session is unaffected by the merge handling', () => {
+  const cat = baseCat();
+  const parsed = { intervals: [], lengths: [], glitches: [], summary: { total_distance_m: 1000 } };
+  const { session } = logSession(cat, { type: 'pool', subtype: 'threshold', date: '2026-06-01', parsed });
+  assert.ok(!session.coach_flags.some(f => /watch activities/.test(f)));
+});

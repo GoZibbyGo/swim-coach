@@ -4,7 +4,7 @@
 import { generateSession } from '../src/orchestrator.js';
 import { renderSessionMarkdown, humanizeFlag } from '../src/renderer.js';
 import { migrateCatalogue } from '../src/schema.js';
-import { parseGarminCsv } from '../src/garmin-parser.js';
+import { parseGarminCsv, mergeParsedSessions } from '../src/garmin-parser.js';
 import { logSession, resolveFlag } from '../src/catalogue-writer.js';
 import { phaseProgress } from '../src/phases.js';
 import { analyzeSession } from '../src/session-analysis.js';
@@ -849,7 +849,7 @@ function renderLogBody() {
     hint.innerHTML = `Logging your generated <strong>Block ${s.block_number} · Session ${s.session_in_block} — ${esc(s.subtype)}</strong> (${esc(s.type)}).`;
     body.innerHTML = s.type === 'dryland'
       ? `<p class="muted" style="padding:0 4px">Enter what you actually did — one box per set:</p>${buildDrylandPlannedForm(s)}`
-      : `<div class="card"><strong>Pool data</strong><label>Garmin CSV (export from Garmin Connect)</label><input type="file" id="csvFile" /></div>`;
+      : `<div class="card"><strong>Pool data</strong><label>Garmin CSV (export from Garmin Connect)</label><input type="file" id="csvFile" multiple /><p class="muted" style="margin:4px 0 0">Had to reset your watch mid-swim? Select <strong>all</strong> the activity files for this session — they’ll be joined into one.</p></div>`;
     restoreLogDraft();
     return;
   }
@@ -863,7 +863,8 @@ function renderLogBody() {
       </div>
       <div id="extPool">
         <label>Garmin CSV (what you actually swam)</label>
-        <input type="file" id="csvFile" />
+        <input type="file" id="csvFile" multiple />
+        <p class="muted" style="margin:4px 0 0">Split across several watch activities? Select them all — they&rsquo;ll be joined into one session.</p>
         <label>…or no watch data? Describe the sets you did</label>
         <textarea id="poolDescribe" placeholder="e.g. 8×50 free @ 1:00, 4×100 pull, 200 cooldown"></textarea>
         <label>Session plan you were given (optional file)</label>
@@ -1018,6 +1019,27 @@ function parseDrylandLines(text) {
   });
 }
 
+
+// Read every selected Garmin CSV and join them into ONE parsed session.
+// The watch sometimes gets reset mid-swim, so a single pool session arrives as
+// several activities; logging them separately would inflate the block counters
+// and compute every metric over half a swim. Files are sorted by name so the
+// swim order is stable (Garmin exports sort chronologically by name).
+async function parseSelectedCsvs(inputId) {
+  const files = [...(document.getElementById(inputId)?.files ?? [])];
+  if (!files.length) return null;
+  files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  const parsed = [];
+  for (const f of files) {
+    try {
+      parsed.push(parseGarminCsv(await f.text()));
+    } catch (e) {
+      throw new Error(`Couldn't read "${f.name}": ${e?.message ?? e}`);
+    }
+  }
+  return mergeParsedSessions(parsed);
+}
+
 async function submitLog() {
   const btn = document.getElementById('logBtn');
   btn.disabled = true;
@@ -1041,9 +1063,9 @@ async function submitLog() {
       input.subtype = s.subtype;
       input.planned = s; // keep the prescribed plan on the record (for block analysis export)
       if (s.type === 'pool') {
-        const file = document.getElementById('csvFile')?.files?.[0];
-        if (!file) { banner('bad', 'Add the Garmin CSV for this pool session.'); btn.disabled = false; return; }
-        input.parsed = parseGarminCsv(await file.text());
+        const merged = await parseSelectedCsvs('csvFile');
+        if (!merged) { banner('bad', 'Add the Garmin CSV for this pool session.'); btn.disabled = false; return; }
+        input.parsed = merged;
       } else {
         input.dryland = collectDrylandPlannedForm(s);
       }
@@ -1053,8 +1075,8 @@ async function submitLog() {
       input.type = t;
       const notes = [];
       if (t === 'pool') {
-        const file = document.getElementById('csvFile')?.files?.[0];
-        if (file) input.parsed = parseGarminCsv(await file.text());
+        const merged = await parseSelectedCsvs('csvFile');
+        if (merged) input.parsed = merged;
         const desc = document.getElementById('poolDescribe')?.value.trim();
         if (desc) notes.push(`Sets: ${desc}`);
         // Optional: the prescribed external session plan (a file you were given).
@@ -1063,7 +1085,7 @@ async function submitLog() {
           try { notes.push(`Plan (${planFile.name}): ${(await planFile.text()).slice(0, 1500)}`); }
           catch { notes.push(`Plan file attached: ${planFile.name}`); }
         }
-        if (!file && !desc) { banner('bad', 'Add the Garmin CSV, or describe the sets you did.'); btn.disabled = false; return; }
+        if (!merged && !desc) { banner('bad', 'Add the Garmin CSV, or describe the sets you did.'); btn.disabled = false; return; }
       } else {
         // External dryland: actual results from the per-exercise boxes.
         const planText = document.getElementById('extDryPlan')?.value || '';
@@ -1074,6 +1096,17 @@ async function submitLog() {
         if (planFile) notes.push(`Plan file: ${planFile.name}`);
       }
       if (notes.length) input.notes = notes.join(' | ');
+    }
+
+    // A session joined from several watch activities carries an untracked gap
+    // at every seam (laps swum while the watch was being reset are in no file).
+    // Record it as a note so the engine's symptom mapper downgrades the volume
+    // shortfall to a data-quality observation instead of a compliance failure.
+    if ((input.parsed?.merged_from ?? 1) > 1) {
+      const seams = input.parsed.merge_seams ?? [];
+      const m = `Logged from ${input.parsed.merged_from} watch activities joined into one session (watch reset mid-swim)`
+        + (seams.length ? ` — untracked gap after INT ${seams.join(', INT ')}.` : '.');
+      input.notes = input.notes ? `${input.notes} | ${m}` : m;
     }
 
     // Duplicate guard: if an existing session matches this one (same date +

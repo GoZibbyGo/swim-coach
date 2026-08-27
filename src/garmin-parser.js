@@ -391,6 +391,95 @@ export function parseGarminCsv(csvText, opts = {}) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// Merging several exports into ONE session.
+//
+// The watch sometimes gets reset mid-swim, so a single pool session arrives as
+// two (or more) separate Garmin activities. Logging them as separate sessions
+// is wrong twice over: it inflates the block counters, and it splits the set
+// so that per-session bests, SWOLF averages and plan reconciliation are all
+// computed over half a swim.
+//
+// Interval numbers restart at 1 in every export, so later files are offset
+// past the previous file's highest interval. Everything derived (bests, avg
+// SWOLF, total distance, threshold pace) is then recomputed over the combined
+// data by the SAME computeSummary the single-file path uses — no parallel
+// implementation to drift.
+//
+// The gap between two activities is not recorded anywhere, so the rest after
+// each seam interval is set to null rather than 0: an unknown gap must not be
+// read as "no rest" by the sprint-rest safety check.
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * @param {object[]} parsedList - outputs of parseGarminCsv, in swim order
+ * @param {object} [opts] - { poolLengthM }
+ * @returns {object} a single parsed object, plus `merged_from` / `merge_seams`
+ */
+export function mergeParsedSessions(parsedList, opts = {}) {
+  const list = (parsedList ?? []).filter(p => p && Array.isArray(p.intervals));
+  if (!list.length) {
+    return { intervals: [], lengths: [], summary: emptySummary(), glitches: [], merged_from: 0, merge_seams: [] };
+  }
+  if (list.length === 1) return { ...list[0], merged_from: 1, merge_seams: [] };
+
+  const poolLengthM = opts.poolLengthM ?? 25;
+  const intervals = [];
+  const lengths = [];
+  const glitches = [];
+  const seams = [];
+  let offset = 0;
+
+  list.forEach((p, fileIdx) => {
+    const isLastFile = fileIdx === list.length - 1;
+    const shift = n => (Number(n) || 0) + offset;
+    let maxN = offset;
+
+    // Copy + renumber the lengths first, grouped by their ORIGINAL interval,
+    // so each interval can reuse the very same copies (no divergent duplicates
+    // between `parsed.lengths` and `interval.lengths`).
+    const byInterval = new Map();
+    for (const l of p.lengths ?? []) {
+      const copy = { ...l, interval_number: shift(l.interval_number) };
+      lengths.push(copy);
+      const key = l.interval_number;
+      if (!byInterval.has(key)) byInterval.set(key, []);
+      byInterval.get(key).push(copy);
+    }
+
+    for (const iv of p.intervals) {
+      const n = shift(iv.interval_number);
+      if (n > maxN) maxN = n;
+      intervals.push({
+        ...iv,
+        interval_number: n,
+        lengths: byInterval.get(iv.interval_number)
+          ?? (iv.lengths ?? []).map(l => ({ ...l, interval_number: n })),
+      });
+    }
+
+    for (const g of p.glitches ?? []) glitches.push({ ...g, interval: shift(g.interval) });
+
+    // Seam bookkeeping — only between files, not after the final one.
+    if (!isLastFile && intervals.length) {
+      const seam = intervals[intervals.length - 1];
+      seam.rest_after_s = null;   // untracked gap, NOT zero rest
+      seam.merge_seam = true;
+      seams.push(seam.interval_number);
+    }
+    offset = maxN;
+  });
+
+  return {
+    intervals,
+    lengths,
+    summary: computeSummary(intervals, lengths, poolLengthM),
+    glitches,
+    merged_from: list.length,
+    merge_seams: seams,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // Session-level aggregations.
 // ──────────────────────────────────────────────────────────────────────────
 

@@ -156,3 +156,12 @@ test('trend history is omitted when there is no comparable history', () => {
   const { userPrompt } = buildAnalysisPrompt(catWithSession().sessions[0], catWithSession());
   assert.ok(!/Recent sprint pool sessions/.test(userPrompt));
 });
+
+test('system prompt bans the "This session…" stock opener', () => {
+  // Measured in the 2026-08-27 eval: 6 of 7 Coaching Takeaways opened with the
+  // literal words "This session", so the debriefs read identically even though
+  // leadAngle was correctly varying the SUBJECT.
+  const { systemPrompt } = buildAnalysisPrompt(catWithSession().sessions[0], catWithSession());
+  assert.match(systemPrompt, /OPEN WITH THE FINDING, NOT A FRAME/);
+  assert.match(systemPrompt, /Never begin a section with "This session/);
+});

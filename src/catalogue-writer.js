@@ -210,6 +210,18 @@ export function logSession(catalogue, input = {}) {
   const fb = input.feedbackText ? mapFeedback(input.feedbackText, { context: type }) : { matched: [], resolved: emptyResolved() };
   const signals = fb.resolved;
 
+  // ── Multi-activity session (watch reset mid-swim) ──
+  // When a session is joined from several Garmin exports, the laps swum while
+  // the watch was being reset are in NO file — so the recorded volume is a
+  // lower bound. Inject the tracking-dropout signal DIRECTLY rather than
+  // relying on the athlete happening to type the right phrase: the merge is a
+  // fact the parser already knows. Without this, the missing metres read as a
+  // compliance failure ("you swam 1400m of the prescribed 1700m").
+  const mergedFrom = input.parsed?.merged_from ?? 1;
+  if (mergedFrom > 1 && !fb.matched.some(m => m.id === 'tracking_dropout')) {
+    fb.matched = [...fb.matched, { id: 'tracking_dropout', source: 'merged_activities' }];
+  }
+
   // ── Plan tags (pool sessions with a plan) — round-5 addition.
   // Maps each actual interval to the plan block it fell inside, so flag
   // detection can gate PRs on equipment (e.g. don't write a pull-buoy 100m
@@ -256,6 +268,13 @@ export function logSession(catalogue, input = {}) {
       ...detected.flags,
       ...planDeviations,
       ...drylandIssues,
+      ...(mergedFrom > 1
+        ? [`Data quality: this session was logged from ${mergedFrom} separate watch activities joined together${
+            (input.parsed?.merge_seams ?? []).length
+              ? ` (seam after INT ${input.parsed.merge_seams.join(', INT ')})`
+              : ''
+          } — any laps swum while the watch was being reset are untracked, so the recorded volume is a lower bound. Do NOT report this as a skipped or shortened session.`]
+        : []),
       ...signals.context_notes.map(renderContextNote).filter(Boolean),
     ],
     notes: input.notes ?? (subtypeInference && isExternal

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -9,6 +9,7 @@ import {
   parseTimeToSeconds,
   formatPacePer100m,
   parseGarminCsv,
+  mergeParsedSessions,
 } from '../src/garmin-parser.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -299,4 +300,93 @@ test('synthetic-format numbered Rest intervals attribute rest_after_s', () => {
 test('parser throws on file without Intervals column', () => {
   assert.throws(() => parseGarminCsv('foo,bar\n1,2\n'),
     /missing "Intervals" column/);
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// Merging several exports into one session (watch reset mid-swim)
+
+function synthParsed(startInt, reps, timePerLength) {
+  const intervals = [], lengths = [];
+  for (let i = 0; i < reps; i++) {
+    const n = startInt + i;
+    const mk = (li) => ({ interval_number: n, length_in_interval: li, distance_m: 25, time_s: timePerLength,
+      strokes: 8, is_freestyle: true, is_drill: false, glitches: [], swolf: 24 });
+    const l1 = mk(1), l2 = mk(2);
+    lengths.push(l1, l2);
+    intervals.push({
+      interval_number: n, is_rest: false, stroke: 'Freestyle', distance_m: 50,
+      time_s: timePerLength * 2, rest_after_s: 30, swolf: 24, avg_strokes: 8, lengths: [l1, l2],
+    });
+  }
+  return { intervals, lengths, summary: {}, glitches: [] };
+}
+
+test('mergeParsedSessions offsets interval numbers so they never collide', () => {
+  const a = synthParsed(1, 4, 18);
+  const b = synthParsed(1, 3, 19);   // second export restarts at INT 1
+  const m = mergeParsedSessions([a, b]);
+  const ns = m.intervals.map(i => i.interval_number);
+  assert.deepEqual(ns, [1, 2, 3, 4, 5, 6, 7], `got ${JSON.stringify(ns)}`);
+  assert.equal(new Set(ns).size, ns.length, 'interval numbers must be unique');
+  assert.equal(m.merged_from, 2);
+});
+
+test('merged lengths stay attached to their renumbered intervals', () => {
+  const m = mergeParsedSessions([synthParsed(1, 2, 18), synthParsed(1, 2, 19)]);
+  for (const iv of m.intervals) {
+    for (const l of iv.lengths) {
+      assert.equal(l.interval_number, iv.interval_number,
+        'a length must carry the same interval number as its parent');
+    }
+  }
+  // parsed.lengths and interval.lengths must agree (same objects, not clones).
+  assert.equal(m.lengths.length, 8);
+  assert.ok(m.intervals[2].lengths.every(l => m.lengths.includes(l)));
+});
+
+test('merged totals are recomputed across BOTH files', () => {
+  const m = mergeParsedSessions([synthParsed(1, 4, 18), synthParsed(1, 3, 19)]);
+  assert.equal(m.summary.total_distance_m, 7 * 50, 'distance must be the sum');
+});
+
+test('the seam carries a NULL rest, not zero (the gap is untracked)', () => {
+  const m = mergeParsedSessions([synthParsed(1, 4, 18), synthParsed(1, 3, 19)]);
+  assert.deepEqual(m.merge_seams, [4]);
+  const seam = m.intervals.find(i => i.interval_number === 4);
+  assert.equal(seam.rest_after_s, null, 'an unknown gap must not read as 0s rest');
+  assert.equal(seam.merge_seam, true);
+  // The final interval is NOT a seam.
+  assert.equal(m.intervals[m.intervals.length - 1].merge_seam, undefined);
+});
+
+test('merging one file is a passthrough; merging none is empty', () => {
+  const a = synthParsed(1, 3, 18);
+  const one = mergeParsedSessions([a]);
+  assert.equal(one.merged_from, 1);
+  assert.equal(one.intervals.length, 3);
+  const none = mergeParsedSessions([]);
+  assert.equal(none.merged_from, 0);
+  assert.equal(none.intervals.length, 0);
+});
+
+test('glitch interval references are renumbered too', () => {
+  const a = synthParsed(1, 2, 18);
+  const b = synthParsed(1, 2, 19);
+  b.glitches = [{ interval: 1, length: 1, kind: 'implausibly_fast', detail: 'x' }];
+  const m = mergeParsedSessions([a, b]);
+  assert.equal(m.glitches[0].interval, 3, 'a glitch in file 2 INT 1 becomes INT 3');
+});
+
+test('merging a real CSV with itself doubles the distance and keeps numbering clean', () => {
+  if (!existsSync(fixturePath)) return;
+  const raw = readFileSync(fixturePath, 'utf8');
+  const single = parseGarminCsv(raw);
+  const m = mergeParsedSessions([parseGarminCsv(raw), parseGarminCsv(raw)]);
+  assert.equal(m.summary.total_distance_m, single.summary.total_distance_m * 2);
+  const ns = m.intervals.map(i => i.interval_number);
+  assert.equal(new Set(ns).size, ns.length, 'no duplicate interval numbers');
+  assert.ok(Math.max(...ns) > Math.max(...single.intervals.map(i => i.interval_number)));
+  // Best splits are unchanged (same swim twice) — proves summary was recomputed
+  // over the merged set rather than taken from the first file.
+  assert.equal(m.summary.best_25m_split_s, single.summary.best_25m_split_s);
 });

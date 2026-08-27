@@ -129,7 +129,12 @@ export const FEEDBACK_SIGNALS = [
   { id: 'tracking_dropout', category: 'adherence', applies_to: ['pool'], severity: 'medium', decay: 'this',
     phrases: ['watch fell off', 'watch stopped', 'stopped tracking', 'watch died',
       'tracking stopped', 'lost gps', 'lost tracking', "didn't record",
-      'watch came off', 'watch unstrapped'],
+      'watch came off', 'watch unstrapped',
+      // A session logged from several watch activities has an untracked gap at
+      // every seam — laps swum while the watch was being reset are simply not
+      // in any file. Treat it as a data-quality gap, not a compliance failure.
+      'watch reset', 'reset my watch', 'restarted the watch',
+      'watch activities joined'],
     effects: { data_quality: 'tracking_dropout', note: true } },
   { id: 'session_completed_explicit', category: 'adherence', applies_to: ['both'], severity: 'info', decay: 'this',
     phrases: ['completed this session completely', 'completed the session fully',
