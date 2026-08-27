@@ -64,7 +64,7 @@ Return a single markdown file with **these exact section headings**. It goes to 
 <Bulleted, evidence-based, citing session IDs. e.g. "Sprint sessions reused the same main set (Sessions 13 & 16) — set design isn't varying.">
 
 ## Session feedback — findings
-<Bulleted, evidence-based. e.g. "Feedback never compared first-length vs later-length splits despite the data showing the gap (Sessions 15, 17).">
+<Bulleted, evidence-based. e.g. "Debrief claimed a deviation the engine's plan-vs-actual table did not show (Session 15)." NOTE: do NOT raise the L1-vs-L2 split gap as a finding — L1 is a dead-stop push start and L2 is turn-aided, so a 0.5–1.2s difference is normal physics, not a weakness.>
 
 ## Changes for Claude Code
 ### Deterministic core (code)
@@ -72,7 +72,7 @@ Return a single markdown file with **these exact section headings**. It goes to 
 ### Gemini generation prompt (orchestrator.js)
 <Specific prompt edits/additions. e.g. "Add: 'In sprint sessions vary the main-set structure run-to-run (broken 50s, descending 25s).'" or "- none.">
 ### Gemini feedback prompt (session-analysis.js)
-<Specific prompt edits/additions. e.g. "Add: 'Always compare each rep's first length to the rest and name the wall push-off gap.'" or "- none.">
+<Specific prompt edits/additions. e.g. "Add: 'Cite the per-session numbers when claiming a cross-block trend.'" or "- none.">
 ```
 
 ### Rules for your output
