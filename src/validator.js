@@ -81,9 +81,16 @@ function checkDistances(session) {
 
 function checkRest(session) {
   const errors = [];
+  const warnings = [];
   for (const block of session.blocks ?? []) {
     for (const set of block.sets ?? []) {
       const rest = Number(set.rest_s ?? 0);
+      // "4×50m at 0s rest" is just a 200m continuous swim written as reps —
+      // ambiguous, and it invites stopping at every wall. Only meaningful when
+      // something varies per length (breathing pattern / alternating drill).
+      if (rest === 0 && (set.reps ?? 1) > 1 && !set.breathing && !set.drill) {
+        warnings.push(`${block.name}: ${set.reps}×${set.distance_m}m at 0s rest is the same as ${(set.reps ?? 1) * (set.distance_m ?? 0)}m continuous — either give it real rest or prescribe it as one continuous swim.`);
+      }
       if (isMaxEffortSprint(set, block, session) && rest < SPRINT_REST_MIN_S) {
         errors.push(`${block.name}: max-effort ${set.reps}×${set.distance_m}m has ${rest}s rest — sprint reps need ≥${SPRINT_REST_MIN_S}s. No exceptions.`);
       }
@@ -92,7 +99,7 @@ function checkRest(session) {
       }
     }
   }
-  return { errors, warnings: [] };
+  return { errors, warnings };
 }
 
 function checkStructure(session) {

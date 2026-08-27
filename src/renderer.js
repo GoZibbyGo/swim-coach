@@ -18,19 +18,29 @@ function humanizeFlags(flags) {
 function setLine(set) {
   const reps = set.reps ?? 1;
   const dist = set.distance_m ?? 0;
-  const head = `${reps}×${dist}m`;
   const bits = [];
   if (set.drill) bits.push(set.drill);
   if (set.equipment) bits.push(set.equipment);
   if (set.effort) bits.push(set.effort);
   if (set.breathing) bits.push(`breathing ${set.breathing}`);
   const desc = bits.length ? ` ${bits.join(', ')}` : '';
-  // Single-rep blocks (typically warm-ups / continuous swims) have no NEXT rep
-  // to rest before, so showing "0s rest" or "30s rest" reads as a generator
-  // glitch. Omit rest entirely when reps === 1.
-  const rest = (set.rest_s != null && reps > 1)
-    ? (set.rest_s === 0 ? ' — no rest, continuous' : ` — ${formatRest(set.rest_s)} rest`)
-    : '';
+
+  // "4×50m — no rest, continuous" is just 200m continuous, and reading it as
+  // reps invites stopping at every wall. When rest is 0 across multiple reps,
+  // lead with the TOTAL and keep the length count only as a counting aid — and
+  // only when something actually varies per length (a breathing pattern or a
+  // drill). Otherwise it is simply a straight swim.
+  const isContinuous = set.rest_s === 0 && reps > 1;
+  if (isContinuous) {
+    const total = reps * dist;
+    const perLength = (set.breathing || set.drill) ? ` (count it as ${reps}×${dist}m)` : '';
+    return `${total}m continuous${desc}${perLength}`;
+  }
+
+  // Single-rep blocks have no NEXT rep to rest before, so showing "0s rest" or
+  // "30s rest" reads as a generator glitch. Omit rest entirely when reps === 1.
+  const head = `${reps}×${dist}m`;
+  const rest = (set.rest_s != null && reps > 1) ? ` — ${formatRest(set.rest_s)} rest` : '';
   return `${head}${desc}${rest}`;
 }
 

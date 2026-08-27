@@ -177,3 +177,20 @@ test('guidanceForFlags returns guidance text for active flags', () => {
 test('restrictionsForFlags ignores unknown flags', () => {
   assert.equal(restrictionsForFlags(['left_quad_cramp', 'bogus']).length, 1);
 });
+
+test('warns when a multi-rep set at 0s rest is really a continuous swim', () => {
+  const s = validSprintSession();
+  s.blocks.push({ name: 'Filler', volume_m: 200, sets: [{ reps: 4, distance_m: 50, effort: 'easy', rest_s: 0 }] });
+  s.total_volume_m += 200;
+  const r = validateGeneratedSession(s);
+  assert.ok(r.warnings.some(w => /same as 200m continuous/.test(w)), `warnings: ${JSON.stringify(r.warnings)}`);
+});
+
+test('no continuous warning when a breathing pattern makes the length count meaningful', () => {
+  const s = validSprintSession();
+  s.blocks.push({ name: 'Filler', volume_m: 200, sets: [{ reps: 8, distance_m: 25, effort: 'easy', rest_s: 0, breathing: 'every-5' }] });
+  s.total_volume_m += 200;
+  const r = validateGeneratedSession(s);
+  assert.ok(!r.warnings.some(w => /^Filler:/.test(w)),
+    `the breathing pattern makes the length count meaningful — no warning expected for that block: ${JSON.stringify(r.warnings)}`);
+});

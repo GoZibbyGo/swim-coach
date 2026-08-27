@@ -81,3 +81,45 @@ test('quad-flag warning appears in rendered push-off cue', () => {
   assert.match(md, /no dolphin kick/i);
   assert.match(md, /Quad flag active/);
 });
+
+// ──────────────────────────────────────────────────────────────────────────
+// Continuous vs reps — "4×50m, 0s rest" is just 200m continuous.
+
+test('a 0-rest multi-rep set renders as a continuous total, not as reps', () => {
+  const session = {
+    type: 'pool', subtype: 'sprint', phase: 1, block_number: 1, session_in_block: 1,
+    total_volume_m: 200, blocks: [
+      { name: 'Cool-Down', volume_m: 200, sets: [{ reps: 4, distance_m: 50, effort: 'easy', rest_s: 0 }] },
+    ],
+  };
+  const md = renderSessionMarkdown(session);
+  assert.match(md, /200m continuous/);
+  assert.ok(!/4×50m/.test(md), `must not present a continuous swim as reps: ${md}`);
+  assert.ok(!/no rest, continuous/.test(md), 'the old ambiguous phrasing must be gone');
+});
+
+test('a 0-rest set with a per-length instruction keeps the length count as an aid', () => {
+  const session = {
+    type: 'pool', subtype: 'sprint', phase: 1, block_number: 1, session_in_block: 1,
+    total_volume_m: 200, blocks: [
+      { name: 'Cool-Down', volume_m: 200, sets: [{ reps: 8, distance_m: 25, effort: 'easy', rest_s: 0, breathing: 'every-5' }] },
+    ],
+  };
+  const md = renderSessionMarkdown(session);
+  assert.match(md, /200m continuous/);
+  assert.match(md, /count it as 8×25m/);
+  assert.match(md, /breathing every-5/);
+});
+
+test('a set with real rest still renders as reps', () => {
+  const session = {
+    type: 'pool', subtype: 'sprint', phase: 1, block_number: 1, session_in_block: 1,
+    total_volume_m: 200, blocks: [
+      { name: 'Main Set', volume_m: 200, sets: [{ reps: 8, distance_m: 25, effort: 'max', rest_s: 120 }] },
+    ],
+  };
+  const md = renderSessionMarkdown(session);
+  assert.match(md, /8×25m/);
+  assert.match(md, /2 min rest/);
+  assert.ok(!/continuous/.test(md));
+});
