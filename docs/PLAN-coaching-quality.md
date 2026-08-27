@@ -120,7 +120,7 @@ rewriting them twice. A does *surgical* prompt edits; C does the full restructur
   stronger model for **analysis only** — it's one call per session, so quota-cheap.
 - ☑ **C3 — Deterministic "lead with this" hint** so debriefs don't open identically every time.
 - ☑ **C4 — Feed a short block-history digest** so cross-session trend claims are grounded.
-- ◐ **C5 — Tests done; the EVAL RUN is still outstanding** → (`node scripts/eval-batch.js 7`) to grade the result.
+- ◐ **C5 — Tests done. The eval run is BLOCKED on Gemini daily quota** → (`node scripts/eval-batch.js 7`) to grade the result.
 
 ---
 
@@ -165,3 +165,21 @@ rewriting them twice. A does *surgical* prompt edits; C does the full restructur
   **ALL THREE WORKSTREAMS COMPLETE. Remaining: the C5 eval run** —
   `node --env-file=.env scripts/eval-batch.js 7` when the Gemini daily quota allows, then grade
   it in the claude.ai project to confirm the changes actually moved the grades.
+- **2026-08-26 (session 1, final).** Shipped **v34** (continuous-vs-reps disambiguation, from the
+  athlete's own observation that "4×50m at 0s rest" is just 200m) plus a harness/brief correction.
+  **Ran the eval.** First 7-session run completed fully LLM-planned and LLM-fed-back with zero
+  fallbacks — which confirmed the headline fixes on real output: **0 first-length-gap nagging**,
+  **0 "no rest, continuous"**, and the new "200m continuous" notation present. But it also showed
+  12 `Split imbalance` mentions, which traced to **the eval harness itself**: it synthesised L1
+  with a 10% penalty commented as "the athlete's known push-off weakness" — the same measurement
+  error corrected in v29/v30, still baked into the self-play data. Measured: the old model tripped
+  a flag on **36.6%** of blocks (mean gap 1.68s); the replacement absolute model
+  (turn 1.00s, fatigue 0.15s/length) gives mean 0.85s and **0.4%**. The two grading briefs carried
+  the same wrong belief — `eval-grading-brief.md` listed "slow first length off the wall" as a
+  headline known issue and offered *"Add: 'Always compare the first length … call out the wall
+  push-off gap'"* as a model fix, i.e. the grader would have instructed us to re-add the exact
+  rule we removed. Both briefs corrected.
+  **⚠️ OUTSTANDING: the Gemini daily quota is exhausted** (the 7-session run + one live check).
+  The second run stopped after 3 sessions and overwrote the good output. **Re-run
+  `node --env-file=.env scripts/eval-batch.js 7` after the Pacific-midnight reset** to produce a
+  gradeable artifact on the corrected harness, then grade it in the claude.ai project.

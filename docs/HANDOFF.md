@@ -71,7 +71,7 @@ Two inputs, same output (code changes a Code session makes):
 
 ## 6. Current state & immediate next step
 - Everything above is implemented, tested, committed, and **live at v34**.
-- **✅ The three-workstream coaching-quality overhaul is COMPLETE** (A=v29, B=v30+v31, C=v32) — see `PLAN-coaching-quality.md`. **One item outstanding: the eval run** (`node --env-file=.env scripts/eval-batch.js 7`) to confirm the changes moved the grades. Run it when the Gemini daily quota allows.
+- **✅ The three-workstream coaching-quality overhaul is COMPLETE** (A=v29, B=v30+v31, C=v32) — see `PLAN-coaching-quality.md`. **One item outstanding: a clean eval run.** It was attempted 2026-08-27 and confirmed the headline fixes, but surfaced that the harness itself synthesised a fake push-off gap (now fixed) and then hit the Gemini daily quota. **Re-run `node --env-file=.env scripts/eval-batch.js 7` after the Pacific-midnight reset** for a gradeable artifact.
 - **Next:** when the Gemini quota resets, re-run the eval (`7`) → grade in the claude.ai project → bring the feedback file back → implement. Goal: confirm rounds 1–2 pushed grades toward A-range.
 - **Known open issue (mobile):** the installed Android PWA's file picker doesn't return the selected file (a known Android standalone-PWA limitation) — confirmed it works in a Chrome **tab** and on desktop but not the installed app. **User's decision: log pool CSVs on the desktop (syncs to phone via GitHub); phone is for generate/view/dryland/"describe the sets" logging.** A **Web Share Target** fix (share a CSV → opens in the app) is designed but **shelved** unless the user asks ("let's do the share target"). The `accept` filters were already removed from all file inputs (helped desktop/tab; didn't fix installed-PWA).
 
