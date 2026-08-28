@@ -26,6 +26,7 @@ import { parseGarminCsv } from '../src/garmin-parser.js';
 import { logSession } from '../src/catalogue-writer.js';
 import { analyzeSession } from '../src/session-analysis.js';
 import { renderSessionMarkdown } from '../src/renderer.js';
+import { auditRun } from './eval-audit.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -271,9 +272,11 @@ async function main() {
   ].join('\n');
 
   const body = records.map(recordToMarkdown).join('\n\n---\n\n');
+  const audit = auditRun(records);
   mkdirSync(dirname(OUT), { recursive: true });
-  writeFileSync(OUT, `${header}\n\n${body}\n`, 'utf8');
+  writeFileSync(OUT, `${header}\n\n${audit.markdown}\n\n---\n\n${body}\n`, 'utf8');
   console.log(`\nWrote ${records.length} sessions → ${OUT}`);
+  console.log('\n' + audit.console);
 }
 
 main().catch(e => { console.error(e); process.exit(1); });
