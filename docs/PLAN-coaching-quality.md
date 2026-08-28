@@ -183,3 +183,13 @@ rewriting them twice. A does *surgical* prompt edits; C does the full restructur
   The second run stopped after 3 sessions and overwrote the good output. **Re-run
   `node --env-file=.env scripts/eval-batch.js 7` after the Pacific-midnight reset** to produce a
   gradeable artifact on the corrected harness, then grade it in the claude.ai project.
+
+## 7. Investigated and found NOT to be bugs (don't re-litigate)
+
+- **"Phase 1 never schedules threshold sessions."** Raised because a 7-session eval ran
+  sprint/technique/sprint/technique/sprint/dryland/technique with zero threshold. Simulated
+  `determineNextSession` over 24 Phase-1 sessions: the split is **sprint 12 / technique 4 /
+  threshold 2** of 18 pool sessions (~67 / 22 / 11%). Threshold *is* reachable; at ~11% you
+  simply expect ~0.5 of them in a 5-pool-session sample, so zero is unremarkable. The 67%
+  sprint share is the KB's Phase-1 mandate (≥2 sprint per 3-session block) working by
+  construction, not a weighting bug. **No change made.**
