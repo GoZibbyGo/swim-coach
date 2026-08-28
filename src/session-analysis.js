@@ -80,7 +80,20 @@ export function leadAngle(session, recordFlags, otherFlags) {
   if (has(/^Split imbalance:/)) return 'the split imbalance and which end of the rep it comes from';
   if (has(/Sprint pacing inconsistent|Velocity fade/)) return 'the consistency across the max reps';
   if (recordFlags.length) return 'the matched best and what it says about consistency';
-  return 'the single most useful pattern in the per-interval data';
+  // No headline flag. Measured in the 2026-08-28 eval: this is exactly where
+  // the debrief falls back on a stock "This session…" wrapper — a topic alone
+  // gives it nothing concrete to open on. Hand it an actual NUMBER from the
+  // session so there is something specific to lead with.
+  const m = session?.metrics ?? {};
+  const figure =
+    m.best_25m_split_s != null ? `the ${m.best_25m_split_s}s best 25m`
+    : m.avg_swolf != null ? `the ${m.avg_swolf} average SWOLF`
+    : m.avg_dps_m != null ? `the ${m.avg_dps_m} m/stroke`
+    : m.avg_pace_per_100m ? `the ${m.avg_pace_per_100m}/100m average pace`
+    : null;
+  return figure
+    ? `${figure} — open on that number and what it says about the session's stated purpose`
+    : 'the single most useful pattern in the per-interval data — open on a specific rep or number, never a general statement about the session';
 }
 
 // Compact history of the last few same-type/subtype sessions, so cross-session

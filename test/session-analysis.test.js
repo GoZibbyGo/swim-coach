@@ -127,8 +127,8 @@ test('leadAngle varies with what actually happened this session', () => {
   assert.match(leadAngle(s, [], ['Data quality: tracking dropout — 400m untracked']), /data-quality/);
   assert.match(leadAngle(s, [], ['Cool-down HR elevated: peak 170 bpm']), /CO2/);
   assert.match(leadAngle(s, [], ['Stroke drift detected: 7 early → 9 late']), /stroke-count drift/);
-  // Nothing notable → a generic but still directive angle.
-  assert.match(leadAngle(s, [], []), /most useful pattern/);
+  // Nothing notable → still directive, and now names a concrete figure.
+  assert.match(leadAngle(s, [], []), /16\.6s best 25m/);
 });
 
 test('leadAngle prioritises a record over a lesser flag', () => {
@@ -164,4 +164,23 @@ test('system prompt bans the "This session…" stock opener', () => {
   const { systemPrompt } = buildAnalysisPrompt(catWithSession().sessions[0], catWithSession());
   assert.match(systemPrompt, /OPEN WITH THE FINDING, NOT A FRAME/);
   assert.match(systemPrompt, /Never begin a section with "This session/);
+});
+
+test('with no headline flag, leadAngle hands over a concrete NUMBER not just a topic', () => {
+  // Measured in the 2026-08-28 eval: the "This session…" wrapper reappeared on
+  // the one debrief with no PR — a topic alone gives nothing specific to open
+  // on. The fallback angle must name a real figure from the session.
+  const s = catWithSession().sessions[0];   // best 25m 16.6s, avg SWOLF 30
+  const angle = leadAngle(s, [], []);
+  assert.match(angle, /16\.6s best 25m/, `expected a concrete number, got: ${angle}`);
+  assert.match(angle, /open on that number/);
+});
+
+test('leadAngle falls back through the available metrics, then to a safe generic', () => {
+  const withSwolf = { metrics: { avg_swolf: 29 } };
+  assert.match(leadAngle(withSwolf, [], []), /29 average SWOLF/);
+  const withDps = { metrics: { avg_dps_m: 3.4 } };
+  assert.match(leadAngle(withDps, [], []), /3\.4 m\/stroke/);
+  const bare = { metrics: {} };
+  assert.match(leadAngle(bare, [], []), /never a general statement about the session/);
 });

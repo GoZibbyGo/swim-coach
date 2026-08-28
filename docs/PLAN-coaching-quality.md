@@ -193,3 +193,20 @@ rewriting them twice. A does *surgical* prompt edits; C does the full restructur
   simply expect ~0.5 of them in a 5-pool-session sample, so zero is unremarkable. The 67%
   sprint share is the KB's Phase-1 mandate (≥2 sprint per 3-session block) working by
   construction, not a weighting bug. **No change made.**
+
+## 8. Eval evidence log (what each run actually showed)
+
+- **2026-08-27, 7 sessions, all LLM.** Confirmed on real output: L1/L2 nagging **0**,
+  `Turn conversion` / `Split imbalance` **0** (was 12 before the harness fix), ambiguous
+  "no rest, continuous" **0**, archetypes genuinely rotating (broken 50s → straight max 25s →
+  speed-endurance 50s across the three sprint sessions). **Found:** 6 of 7 Coaching Takeaways
+  opened with the literal words "This session…" — `leadAngle` was varying the SUBJECT while
+  the sentence frame stayed identical. Fixed in v35 (explicit "open on the finding" rule).
+- **2026-08-28, 10 requested / 3 completed** (daily quota died after 2 LLM sessions).
+  Opener fix is **partially** effective: 1 of 2 debriefs opened on the finding
+  ("Achieving a new 50m personal best of 35.5s…"), 1 still used the frame. n=2, so weak
+  evidence — but the leak was on the **technique session with no PR**, i.e. the case where
+  `leadAngle` handed over a topic with no number attached. v36 makes the no-record branch
+  name an actual figure from the session (best 25m → avg SWOLF → DPS → avg pace).
+  **⚠️ v35's opener rule and v36's numeric angle are both still UNCONFIRMED at scale** —
+  check the "This session" opener count on the next full run.
