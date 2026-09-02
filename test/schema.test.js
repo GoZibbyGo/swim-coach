@@ -379,3 +379,41 @@ test('validateCatalogue catches duplicate session ids', () => {
   assert.equal(r.valid, false);
   assert.ok(r.errors.some(e => /duplicate/.test(e)));
 });
+
+test('retracts a rolling best that came from an equipment-assisted rep', () => {
+  // Block-6 report: best_100m_split_s stayed at 88.8s from Session 32's
+  // pull-buoy rep. The round-5 gate stopped new assisted PRs but left the
+  // stored one as the bar every future unassisted 100 was judged against.
+  const cat = {
+    rolling_bests: { best_100m_split_s: 88.8, best_100m_split_context: 'INT 1 (session 32)' },
+    sessions: [
+      { id: 32, date: '2026-08-10', type: 'pool',
+        plan: { blocks: [
+          { name: 'Pull set', sets: [{ reps: 4, distance_m: 100, equipment: 'pull buoy' }] },
+          { name: 'Main Set', sets: [{ reps: 2, distance_m: 100 }] },
+        ] },
+        breakdown: [
+          { n: 1, distance_m: 100, time_s: 88.8 }, { n: 2, distance_m: 100, time_s: 90 },
+          { n: 3, distance_m: 100, time_s: 91 },   { n: 4, distance_m: 100, time_s: 92 },
+          { n: 5, distance_m: 100, time_s: 93.5 }, { n: 6, distance_m: 100, time_s: 94 },
+        ] },
+    ],
+  };
+  const out = migrateCatalogue(cat);
+  assert.equal(out.rolling_bests.best_100m_split_s, 93.5,
+    'the assisted 88.8 must be replaced by the fastest CLEAN 100m');
+  assert.match(out.rolling_bests.best_100m_split_context, /retracting an equipment-assisted 100m/);
+});
+
+test('a legitimately fast unassisted best is left alone', () => {
+  const cat = {
+    rolling_bests: { best_100m_split_s: 89.0 },
+    sessions: [
+      { id: 40, date: '2026-08-20', type: 'pool',
+        plan: { blocks: [{ name: 'Main Set', sets: [{ reps: 2, distance_m: 100 }] }] },
+        breakdown: [{ n: 1, distance_m: 100, time_s: 89.0 }, { n: 2, distance_m: 100, time_s: 91 }] },
+    ],
+  };
+  const out = migrateCatalogue(cat);
+  assert.equal(out.rolling_bests.best_100m_split_s, 89.0, 'a clean best must survive the scrub');
+});

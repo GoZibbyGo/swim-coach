@@ -241,9 +241,10 @@ export function logSession(catalogue, input = {}) {
   }
 
   // ── Dryland data-quality + plan-deviation checks ──
-  const drylandIssues = type === 'dryland'
+  const drylandResult = type === 'dryland'
     ? detectDrylandIssues(input.dryland ?? { exercises: [] }, cat.rolling_bests?.dryland_baselines ?? null)
-    : [];
+    : { flags: [], updates: {} };
+  const drylandIssues = drylandResult.flags;
   const planDeviations = (type === 'pool' && input.parsed && input.planned)
     ? detectPlanDeviations(input.planned, breakdownForTags, { signals: fb })
     : [];
@@ -289,6 +290,20 @@ export function logSession(catalogue, input = {}) {
 
   // ── Update rolling bests ──
   const rolling_bests = applyNewRecords(cat.rolling_bests ?? {}, detected.new_records, date, id);
+
+  // ── Dryland baselines ──
+  // These were READ every session but never written, so `updated_session_id`
+  // sat at Session 18 (May) while three drylands went by and a hollow-body hold
+  // of 30s against a 20s baseline was never recorded. Persist them here, in the
+  // one place allowed to mutate the catalogue.
+  if (type === 'dryland' && Object.keys(drylandResult.updates).length) {
+    rolling_bests.dryland_baselines = {
+      ...(rolling_bests.dryland_baselines ?? {}),
+      ...drylandResult.updates,
+      updated_session_id: id,
+      updated_date: date,
+    };
+  }
 
   // ── Active flags (with decay) ──
   // Apply athlete-driven clear_flags first (e.g. quad_resolved lifts the

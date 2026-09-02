@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { analyzeSession, buildAnalysisPrompt, leadAngle } from '../src/session-analysis.js';
+import { analyzeSession, buildAnalysisPrompt, leadAngle, blockSynthesis } from '../src/session-analysis.js';
 
 function catWithSession(extra = {}) {
   return {
@@ -183,4 +183,38 @@ test('leadAngle falls back through the available metrics, then to a safe generic
   assert.match(leadAngle(withDps, [], []), /3\.4 m\/stroke/);
   const bare = { metrics: {} };
   assert.match(leadAngle(bare, [], []), /never a general statement about the session/);
+});
+
+test('blockSynthesis computes the block trend and leads with what WORSENED', () => {
+  const cat = { sessions: [
+    { id: 3, date: '2026-08-30', type: 'pool', block_number: 6, metrics: { best_25m_split_s: 17.4, avg_swolf: 30 } },
+    { id: 2, date: '2026-08-27', type: 'pool', block_number: 6, metrics: { best_25m_split_s: 17.1, avg_swolf: 29 } },
+    { id: 1, date: '2026-08-26', type: 'pool', block_number: 6, metrics: { best_25m_split_s: 16.8, avg_swolf: 28 } },
+  ] };
+  const line = blockSynthesis(cat.sessions[0], cat);
+  assert.match(line, /BLOCK 6 CLOSES WITH THIS SESSION/);
+  // Picks the LARGEST worsening spread — SWOLF (2) over best 25m (0.6).
+  assert.match(line, /avg SWOLF 28 → 29 → 30/, 'values must read oldest → newest');
+  assert.match(line, /WORSENING/);
+  assert.match(line, /do not recompute/);
+});
+
+test('blockSynthesis stays silent mid-block', () => {
+  const cat = { sessions: [
+    { id: 2, date: '2026-08-27', type: 'pool', block_number: 6, metrics: { best_25m_split_s: 17.1 } },
+    { id: 1, date: '2026-08-26', type: 'pool', block_number: 6, metrics: { best_25m_split_s: 16.8 } },
+  ] };
+  assert.equal(blockSynthesis(cat.sessions[0], cat), '');
+  assert.equal(blockSynthesis({}, cat), '');
+});
+
+test('the block line reaches the prompt so the LLM cannot skip it', () => {
+  const cat = { rolling_bests: {}, sessions: [
+    { id: 3, date: '2026-08-30', type: 'pool', subtype: 'sprint', block_number: 6, coach_flags: [], metrics: { best_25m_split_s: 17.4 } },
+    { id: 2, date: '2026-08-27', type: 'pool', subtype: 'sprint', block_number: 6, metrics: { best_25m_split_s: 17.1 } },
+    { id: 1, date: '2026-08-26', type: 'pool', subtype: 'sprint', block_number: 6, metrics: { best_25m_split_s: 16.8 } },
+  ] };
+  const { userPrompt, systemPrompt } = buildAnalysisPrompt(cat.sessions[0], cat);
+  assert.match(userPrompt, /BLOCK 6 CLOSES WITH THIS SESSION/);
+  assert.match(systemPrompt, /NAUSEA \/ BREATHLESSNESS IS THE CO2 STORY/);
 });

@@ -114,6 +114,54 @@ function recentTrendText(catalogue, session, n = 3) {
   }).join('\n');
 }
 
+// Block-level trend, computed by the ENGINE.
+//
+// "Close the block with the recurring limiter and its per-session values" has
+// been asked for after blocks 4, 5 and 6 and shipped as a prompt instruction
+// three times without landing. The lesson from the plan-reconciliation fix
+// applies: if the model has to derive it, it won't reliably do it — so derive
+// it here and hand over the finished sentence.
+//
+// Returns '' unless this session closes a block.
+export function blockSynthesis(session, catalogue) {
+  const sessions = catalogue?.sessions ?? [];
+  const block = session?.block_number ?? session?.plan?.block_number ?? null;
+  if (block == null) return '';
+  const inBlock = sessions.filter(s => s?.type === 'pool' && (s?.block_number ?? s?.plan?.block_number) === block);
+  // Only synthesise once the block's pool sessions are complete.
+  if (inBlock.length < 3) return '';
+
+  // Oldest → newest so a trend reads in the direction it happened.
+  const ordered = [...inBlock].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const series = (label, pick, unit = 's', lowerIsBetter = true) => {
+    const vals = ordered.map(s => ({ date: s.date, v: pick(s) })).filter(x => x.v != null);
+    if (vals.length < 2) return null;
+    const first = vals[0].v, last = vals[vals.length - 1].v;
+    if (first === last) return null;
+    const better = lowerIsBetter ? last < first : last > first;
+    return {
+      label,
+      spread: Math.abs(last - first),
+      text: `${label} ${vals.map(x => `${x.v}${unit}`).join(' → ')} across the block — ${better ? 'improving' : 'WORSENING'}`,
+      better,
+    };
+  };
+
+  const candidates = [
+    series('best 25m', s => s.metrics?.best_25m_split_s),
+    series('avg SWOLF', s => s.metrics?.avg_swolf, ''),
+    series('distance per stroke', s => s.metrics?.avg_dps_m, ' m/stroke', false),
+  ].filter(Boolean);
+  if (!candidates.length) return '';
+
+  // Lead with something that got WORSE if anything did — that's the limiter.
+  const worsening = candidates.filter(c => !c.better);
+  const pick = worsening.length
+    ? worsening.sort((a, b) => b.spread - a.spread)[0]
+    : candidates.sort((a, b) => b.spread - a.spread)[0];
+  return `BLOCK ${block} CLOSES WITH THIS SESSION. Engine-computed block trend (use it verbatim for the "🎯 Top priority for next block" line — do not recompute): ${pick.text}.`;
+}
+
 export function buildAnalysisPrompt(session, catalogue, knowledge) {
   const rb = catalogue?.rolling_bests ?? {};
   // Separate the engine's record flags from other flags so the prompt can
@@ -129,6 +177,7 @@ export function buildAnalysisPrompt(session, catalogue, knowledge) {
   const prescribed = planText(session);
   const reconciliation = buildPlanReconciliation(session.plan, session.breakdown).text;
   const trend = recentTrendText(catalogue, session);
+  const blockLine = blockSynthesis(session, catalogue);
 
   // Prompt structure note (v32): this used to be ~22 flattened bullets all
   // phrased as NEVER/ALWAYS. That volume of undifferentiated prohibition is
@@ -170,8 +219,9 @@ export function buildAnalysisPrompt(session, catalogue, knowledge) {
     'C4. Qualify every "best" split you cite — was it a clean max effort in a dedicated sprint set, or a build / sprint-finish / drill-adjacent rep? Position in the session and stroke count tell you. An unqualified PR the reader over-credits is worse than no PR.',
     'C5. Judge the session against ITS OWN stated purpose (a technique session on technique execution, not on threshold pace).',
     'C6. Respond to the athlete\'s note directly and specifically — acknowledge what they reported, reflect injury/recovery updates, react to any plan modification they made. Never leave a note unaddressed.',
-    'C7. For dryland, compare every logged exercise to its stored baseline by name, including "first baseline for X" where none exists.',
-    'C8. If this session closes a block, finish with ONE "🎯 Top priority for next block" line naming the single recurring limiter, with the per-session numbers showing whether it improved. Synthesise — do not repeat the same flag per session.',
+    'C7. For dryland, report EVERY exercise the engine flagged — PRs, holds, regressions, first baselines, and any "progression due" line. The engine now emits one finding per logged exercise, so a dryland debrief with no findings means you dropped them. Name the exercise and the numbers.',
+    'C7b. NAUSEA / BREATHLESSNESS IS THE CO2 STORY. If the athlete reports nausea, dizziness, or needing to stop for breath, say it IN THE SAME BREATH as the cool-down HR / CO2 observation — one problem, not two independent notes. This has now ended three sessions across three blocks; if it recurs, say that it is recurring and prescribe for it rather than logging it again.',
+    'C8. When the input contains a "BLOCK n CLOSES WITH THIS SESSION" line, finish with the "🎯 Top priority for next block" line built from the engine-computed trend it gives you. Use those numbers verbatim; do not recompute or substitute a different limiter.',
     'C9. Finish every section and every sentence. Specific, direct, encouraging coach voice. No preamble before the first heading.',
     knowledge ? `\nDomain context:\n${knowledge.slice(0, 5000)}` : '',
   ].filter(Boolean).join('\n');
@@ -191,6 +241,7 @@ export function buildAnalysisPrompt(session, catalogue, knowledge) {
     otherFlags.length ? `Other engine flags (incorporate these):\n- ${otherFlags.join('\n- ')}` : '',
     hasNotes ? `Athlete's own notes (respond to these directly): "${rawNotes}"` : 'Athlete left no notes — OMIT any notes-response section.',
     trend ? `Recent ${session.subtype} ${session.type} sessions (for grounded trend claims — cite these numbers, don't invent a trend):\n${trend}` : '',
+    blockLine,
     `SUGGESTED OPENING ANGLE for this debrief: ${leadAngle(session, recordFlags, otherFlags)}. Override it only if the data genuinely points somewhere more interesting.`,
   ].filter(Boolean).join('\n');
 

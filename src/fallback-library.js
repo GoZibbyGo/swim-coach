@@ -12,6 +12,7 @@
 // dolphin kick.
 
 import { computeTargets, secondsToPace } from './targets.js';
+import { drylandKey } from './flags.js';
 
 // ──────────────────────────────────────────────────────────────────────────
 // Pool templates — sets only; volumes computed by the builder.
@@ -681,9 +682,28 @@ function buildFallbackDryland(decision, catalogue, opts) {
   const template = family[equipmentKey] ?? family.bodyweight;
   const quadActive = [...QUAD_FLAGS].some(f => active_flags.includes(f));
 
+  // Each dryland is otherwise a verbatim repeat — the template is keyed 1:1 by
+  // equipment, so there is no second template to rotate to. What was missing is
+  // PROGRESSION: Session 35 repeated Session 28 exactly, and a shoulder press
+  // logged 10/10/10 against a prescribed 8-10 was never advanced. Stamp each
+  // exercise with the athlete's stored best so the session names the number to
+  // beat instead of re-issuing the same prescription blind.
+  const baselines = catalogue?.rolling_bests?.dryland_baselines ?? {};
+  const beatTarget = (name) => {
+    const best = Number(baselines[`${drylandKey(name)}_best`]);
+    const kg = Number(baselines[`${drylandKey(name)}_weight_kg`]);
+    if (!Number.isFinite(best)) return null;
+    return `Your stored best is ${best}${Number.isFinite(kg) ? ` @ ${kg}kg` : ''} — beat it or add load.`;
+  };
+
   // Clone blocks; annotate the leg block when a quad flag is active.
   const blocks = template.blocks.map(b => {
-    const block = { name: b.name, exercises: b.exercises.map(e => ({ ...e })) };
+    const block = { name: b.name, exercises: b.exercises.map(e => {
+      const ex = { ...e };
+      const t = beatTarget(ex.name);
+      if (t) ex.target = t;
+      return ex;
+    }) };
     if (quadActive && /leg|hip-flexor/i.test(b.name)) {
       block.note = '⚠️ Quad flag active — controlled tempo only, no jumping or explosive loading; keep isometric holds short. Stop on any tightness.';
     }

@@ -74,7 +74,19 @@ export function buildBlockReportMarkdown(catalogue, blockNumber) {
   const out = [];
   out.push(`# Swim Coach — Block ${blockNumber} analysis`);
   out.push(`Athlete: ${catalogue?.athlete?.name ?? '—'} · Goal: ${catalogue?.athlete?.goal ?? '—'}`);
-  out.push(`Phase ${catalogue?.training_phase?.current ?? '?'} (${catalogue?.training_phase?.name ?? ''}) · ${all.length} session(s) · exported ${new Date().toISOString().slice(0, 10)}`);
+  // Phase the block was actually TRAINED in, taken from the sessions
+  // themselves. This used to print `training_phase.current` — the phase at
+  // EXPORT time — so a block completed just before a phase advance was
+  // labelled "Phase 2" while every plan in it correctly said phase 1, and the
+  // review concluded the phase had failed to propagate. The plans were right;
+  // the header was reading the wrong clock.
+  const trained = [...new Set(all.map(s => s?.phase_at_time).filter(v => v != null))];
+  const now = catalogue?.training_phase?.current ?? null;
+  const phaseLabel = trained.length === 1
+    ? `Phase ${trained[0]}${now != null && now !== trained[0] ? ` (advanced to Phase ${now} on completion)` : ''}`
+    : trained.length > 1 ? `Phases ${trained.sort().join(' → ')}`
+    : `Phase ${now ?? '?'}`;
+  out.push(`${phaseLabel} (${catalogue?.training_phase?.name ?? ''}) · ${all.length} session(s) · exported ${new Date().toISOString().slice(0, 10)}`);
   out.push('');
   out.push('> For the coaching-review Claude project: judge whether the **session generation** (the prescribed plans below) and the **session analysis** (the feedback) are sound for this athlete and phase, then return a tuning file in the format the project brief specifies.');
 

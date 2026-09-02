@@ -228,7 +228,7 @@ test('flags short sprint rest (<120s) — quad protection / alactic quality', ()
     sprintRep(3, 17.0, 24, 7, 130),
   ] });
   const r = detectTechnical(p);
-  assert.ok(r.flags.some(f => /Sprint rest too short on 1 rep\(s\): INT 2 \(60s\)/.test(f)),
+  assert.ok(r.flags.some(f => /Sprint rest too short on 1 max-effort rep\(s\): INT 2 \(60s\)/.test(f)),
     `flags: ${JSON.stringify(r.flags)}`);
 });
 
@@ -439,16 +439,60 @@ test('buildPlanReconciliation returns empty (not a crash) with no plan or no bre
 test('detectDrylandIssues flags a high outlier rep count', () => {
   const dryland = { exercises: [
     { name: 'Dumbbell single-arm row', reps_per_set: [10, 18, 10] }, // 18 is likely a typo
-    { name: 'Pull-ups',                 reps_per_set: [8, 5, 5, 4] }, // realistic fatigue → no flag
+    { name: 'Pull-ups',                 reps_per_set: [8, 5, 5, 4] }, // realistic fatigue
   ] };
-  const flags = detectDrylandIssues(dryland);
+  const { flags } = detectDrylandIssues(dryland);
   assert.ok(flags.some(f => /Dumbbell single-arm row.*outlier.*18/.test(f)));
-  assert.ok(!flags.some(f => /Pull-ups/.test(f)));
+  // Pull-ups now DO produce a finding — establishing a first baseline. A
+  // dryland session returning nothing was a repeat complaint across blocks.
+  assert.ok(flags.some(f => /Dryland baseline established: Pull-ups — 8 reps/.test(f)));
 });
 
-test('detectDrylandIssues stays quiet when fewer than 3 sets', () => {
-  const flags = detectDrylandIssues({ exercises: [{ name: 'Heavy goblet', reps_per_set: [8, 20] }] });
-  assert.equal(flags.length, 0);
+test('every logged exercise produces a finding — dryland is never silent', () => {
+  const { flags } = detectDrylandIssues({ exercises: [
+    { name: 'Heavy goblet squat', reps_per_set: [8, 20] },
+  ] });
+  assert.ok(flags.length > 0, 'a dryland session must never come back with no findings');
+});
+
+test('baselines are ESTABLISHED, beaten and persisted as updates', () => {
+  const first = detectDrylandIssues({ exercises: [{ name: 'Hollow Body Hold', duration_s_per_set: [20, 18] }] }, {});
+  assert.match(first.flags[0], /baseline established: Hollow Body Hold — 20s/);
+  assert.equal(first.updates.hollow_body_hold_best, 20);
+
+  // Session 30's real numbers: 30/25/24 against a 20s baseline — never recorded.
+  const beat = detectDrylandIssues(
+    { exercises: [{ name: 'Hollow Body Hold', duration_s_per_set: [30, 25, 24] }] },
+    { hollow_body_hold_best: 20 });
+  assert.ok(beat.flags.some(f => /Dryland PR: Hollow Body Hold — 30s beats the stored 20s/.test(f)));
+  assert.equal(beat.updates.hollow_body_hold_best, 30, 'a PR must be written back, not just announced');
+});
+
+test('holding steady and regressing are distinguished, and neither overwrites the best', () => {
+  const held = detectDrylandIssues(
+    { exercises: [{ name: 'Dips', reps_per_set: [9] }] }, { dips_best: 10 });
+  assert.ok(held.flags.some(f => /Dryland held: Dips — 9 reps against a stored best of 10/.test(f)));
+  assert.equal(held.updates.dips_best, undefined);
+
+  const down = detectDrylandIssues(
+    { exercises: [{ name: 'Dips', reps_per_set: [5] }] }, { dips_best: 10 });
+  assert.ok(down.flags.some(f => /Dryland regression: Dips/.test(f)));
+  assert.equal(down.updates.dips_best, undefined);
+});
+
+test('clearing the top of a prescribed range asks for progression', () => {
+  // Session 35: shoulder press 10/10/10 against "3×8-10" — never progressed.
+  const { flags } = detectDrylandIssues({ exercises: [
+    { name: 'Shoulder press', prescription: '3×8-10', reps_per_set: [10, 10, 10] },
+  ] }, { shoulder_press_best: 10 });
+  assert.ok(flags.some(f => /progression due: Shoulder press/.test(f)),
+    `expected a progression prompt, got: ${JSON.stringify(flags)}`);
+});
+
+test('unestablished carry-forward items keep surfacing until programmed', () => {
+  const { flags } = detectDrylandIssues({ exercises: [] },
+    { bar_hang_external_rotation: 'NOT YET ESTABLISHED' });
+  assert.ok(flags.some(f => /carry-forward: bar hang external rotation/.test(f)));
 });
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -620,4 +664,65 @@ test('deviation flags agree with the reconciliation table', () => {
   // ...and must NOT invent deviations in the blocks that were swum correctly.
   assert.ok(!flags.some(f => /Warm-up|Pre-Main Primer|Cool-down/.test(f)),
     `correctly-swum blocks must not be flagged, got: ${JSON.stringify(flags)}`);
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// rep_class is now ENFORCED by the engine, not merely requested of the LLM.
+// Block-6 report: a Sprint Finish tagged build_finish at 60s prescribed rest
+// was flagged "max efforts need ≥120s" for taking 70s — MORE than prescribed —
+// and its slow reps inflated a "2.8s spread across 8 max reps" when the real
+// max set spanned 1.2s.
+
+const TAGGED_PLAN = { blocks: [
+  { name: 'Main Set', sets: [{ reps: 6, distance_m: 25, effort: 'max', rest_s: 120, rep_class: 'max_alactic' }] },
+  { name: 'Sprint Finish', sets: [{ reps: 4, distance_m: 25, effort: 'build to max', rest_s: 60, rep_class: 'build_finish' }] },
+] };
+
+function taggedSession() {
+  // Max set 16.8–18.0s (1.2s spread), build finish 19.0–19.6s at 70s rest.
+  const intervals = [], breakdown = [];
+  const times = [16.8, 17.1, 17.3, 17.5, 17.8, 18.0, 19.0, 19.2, 19.4, 19.6];
+  times.forEach((t, i) => {
+    const n = i + 1;
+    const rest = i < 6 ? 130 : 70;
+    intervals.push(sprintRep(n, t, 24, 7, rest));
+    breakdown.push({ n, distance_m: 25, time_s: t, rest_after_s: rest });
+  });
+  return { intervals, breakdown };
+}
+
+test('a build_finish rep that BEAT its prescribed rest is not flagged', () => {
+  const { intervals, breakdown } = taggedSession();
+  const planTags = buildPlanTags(TAGGED_PLAN, breakdown);
+  assert.equal(planTags.get(7).rep_class, 'build_finish');
+  assert.equal(planTags.get(7).prescribed_rest_s, 60);
+  const r = detectTechnical(parsed({ intervals }), { planTags });
+  assert.ok(!r.flags.some(f => /^Sprint rest too short/.test(f)),
+    `70s against a 60s prescription is compliant, got: ${JSON.stringify(r.flags)}`);
+});
+
+test('pacing spread is computed within max_alactic only, excluding the finish', () => {
+  const { intervals, breakdown } = taggedSession();
+  const planTags = buildPlanTags(TAGGED_PLAN, breakdown);
+  const r = detectTechnical(parsed({ intervals }), { planTags });
+  const spread = r.flags.find(f => /Sprint pacing inconsistent/.test(f));
+  // Max set spans 16.8→18.0 = 1.2s, under the 1.5s threshold → no flag at all.
+  assert.ok(!spread, `build_finish reps must not inflate the max spread, got: ${spread}`);
+});
+
+test('an actually under-rested max rep is STILL flagged, against its prescription', () => {
+  const { intervals, breakdown } = taggedSession();
+  intervals[2].rest_after_s = 40;          // a real violation inside the max set
+  breakdown[2].rest_after_s = 40;
+  const planTags = buildPlanTags(TAGGED_PLAN, breakdown);
+  const r = detectTechnical(parsed({ intervals }), { planTags });
+  assert.ok(r.flags.some(f => /Sprint rest too short.*INT 3 \(40s\).*prescribed 120s/.test(f)),
+    `a genuine violation must still fire and cite the prescription, got: ${JSON.stringify(r.flags)}`);
+});
+
+test('untagged (external) sessions still fall back to the time heuristic', () => {
+  const reps = [sprintRep(1, 16.8, 24, 7, 130), sprintRep(2, 16.9, 24, 7, 60), sprintRep(3, 17.0, 24, 7, 130)];
+  const r = detectTechnical(parsed({ intervals: reps }), {});
+  assert.ok(r.flags.some(f => /^Sprint rest too short/.test(f)),
+    'with no plan tags the heuristic must still protect the athlete');
 });

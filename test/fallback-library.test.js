@@ -303,3 +303,20 @@ test('target line matches the block\'s rep DISTANCE, not always the 25m number',
   const main25 = s25.blocks.find(b => /main/i.test(b.name));
   assert.match(main25.target, /beat 16\.8s/);
 });
+
+test('a dryland session names the stored best to beat, rather than repeating blind', () => {
+  const cat = catalogue();
+  // Keyed on the FULL logged exercise name — which is the template's own name,
+  // so the keys line up in practice (Session 35's was "Dumbbell shoulder press").
+  cat.rolling_bests.dryland_baselines = { dumbbell_shoulder_press_best: 10, dumbbell_shoulder_press_weight_kg: 12.5 };
+  cat.weekly_block_tracking.block_2_dryland_equipment = 'weights';
+  const decision = { type: 'dryland', subtype: 'push_core_legs', block_number: 2, session_in_block: 2, active_flags: [] };
+  const { session } = buildFallbackSession(decision, cat, { date: '2026-09-02' });
+  const all = session.blocks.flatMap(b => b.exercises ?? []);
+  const press = all.find(e => /shoulder press/i.test(e.name ?? ''));
+  assert.ok(press, 'the weights template should contain a shoulder press');
+  assert.match(press.target, /stored best is 10 @ 12\.5kg/,
+    'the athlete must be told the number to beat');
+  // Exercises with no stored baseline simply carry no target — never a bogus one.
+  assert.ok(all.every(e => e.target == null || /stored best is/.test(e.target)));
+});

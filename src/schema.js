@@ -1,3 +1,5 @@
+import { buildPlanTags } from './flags.js';
+
 // Catalogue schema — constants, validators, and defaults.
 // Mirrors the snake_case structure of athlete_catalogue.json so the JSON
 // remains the unambiguous source of truth across phone and desktop.
@@ -557,6 +559,56 @@ export function migrateCatalogue(catalogue) {
     cat.training_phase.blocks_in_phase = (cat.training_phase.current ?? 1) === 1 ? lastCompleted : 0;
   }
 
+  
+// ──────────────────────────────────────────────────────────────────────────
+// Retract rolling bests that came from EQUIPMENT-ASSISTED or drill reps.
+//
+// The round-5 gate stopped NEW assisted PRs, but the already-stored ones were
+// left in place: `best_100m_split_s` stayed at 88.8s from a pull-buoy rep, and
+// that is the number every future unassisted 100 was being judged against.
+//
+// Rather than trying to prove a specific stored value is tainted, recompute the
+// best CLEAN rep across all history. If the stored best is faster than any
+// unassisted rep ever swum, it can only have come from an assisted or drill
+// rep — so replace it, keeping the clean value and its context.
+const RETRACT_ASSISTED_KEY = 'retract_assisted_bests_v1';
+function retractAssistedBests(cat) {
+  const rb = cat.rolling_bests ?? (cat.rolling_bests = {});
+  const targets = [
+    { dist: 100, key: 'best_100m_split_s', ctx: 'best_100m_split_context',
+      dateKey: 'best_100m_split_date', idKey: 'best_100m_split_session_id' },
+    { dist: 50, key: 'best_50m_equiv_s', ctx: 'best_50m_equiv_context',
+      dateKey: 'best_50m_equiv_date', idKey: 'best_50m_equiv_session_id' },
+  ];
+  for (const t of targets) {
+    const stored = Number(rb[t.key]);
+    if (!Number.isFinite(stored)) continue;
+    let clean = null;
+    for (const sess of cat.sessions ?? []) {
+      const rows = Array.isArray(sess?.breakdown) ? sess.breakdown : [];
+      if (!rows.length) continue;
+      const tags = sess.plan ? buildPlanTags(sess.plan, rows) : new Map();
+      for (const r of rows) {
+        if (Number(r.distance_m) !== t.dist) continue;
+        if (r.is_drill) continue;
+        const time = Number(r.time_s);
+        if (!Number.isFinite(time) || time <= 0) continue;
+        if (tags.get(r.n)?.equipment) continue;      // assisted — not PR-eligible
+        if (clean == null || time < clean.time) {
+          clean = { time, n: r.n, id: sess.id, date: sess.date };
+        }
+      }
+    }
+    // Only act when the stored value beats every clean rep on record.
+    if (clean && stored < clean.time) {
+      rb[t.key] = clean.time;
+      rb[t.ctx] = `INT ${clean.n} (session ${clean.id}) — restored after retracting an equipment-assisted ${t.dist}m`;
+      rb[t.dateKey] = clean.date ?? rb[t.dateKey];
+      rb[t.idKey] = clean.id ?? rb[t.idKey];
+    }
+  }
+}
+
   // One-time corrective migrations (run exactly once per catalogue).
   cat.migrations_applied = Array.isArray(cat.migrations_applied) ? cat.migrations_applied : [];
   if (!cat.migrations_applied.includes(SCRUB_25M_KEY)) {
@@ -570,6 +622,10 @@ export function migrateCatalogue(catalogue) {
   if (!cat.migrations_applied.includes(MISLABEL_DRILL_SCRUB_KEY)) {
     scrubMislabeledDrills(cat);
     cat.migrations_applied.push(MISLABEL_DRILL_SCRUB_KEY);
+  }
+  if (!cat.migrations_applied.includes(RETRACT_ASSISTED_KEY)) {
+    retractAssistedBests(cat);
+    cat.migrations_applied.push(RETRACT_ASSISTED_KEY);
   }
   if (!cat.migrations_applied.includes(TRACK_50_100_KEY)) {
     backfill50m100m(cat);

@@ -188,3 +188,21 @@ if (existsSync(realPath)) {
 } else {
   test('real catalogue not found — skipping targets integration', { skip: true }, () => {});
 }
+
+test('phase_goal_50m_s is always AHEAD of today\'s implied 50m, never behind it', () => {
+  // Block-6 report: phase_goal 33.0s vs implied_50m 32.4s — the "goal" was
+  // slower than the session's own target and barely ahead of a standing best.
+  const cat = catalogue();
+  cat.rolling_bests.best_25m_sprint_protocol_s = 15.7;   // implied 50m = 32.4
+  const t = computeTargets(cat, 'sprint', { date: '2026-01-25' });
+  assert.ok(t.phase_goal_50m_s < t.implied_50m_from_stretch_s,
+    `phase goal ${t.phase_goal_50m_s} must be faster than implied ${t.implied_50m_from_stretch_s}`);
+  assert.equal(t.phase_goal_outgrown, true, 'the milestone was passed — say so');
+});
+
+test('an un-outgrown phase milestone is left exactly as the phase defines it', () => {
+  const t = computeTargets(catalogue(), 'sprint', { date: '2026-01-25' });
+  assert.equal(t.phase_goal_50m_s, 33.0);
+  assert.equal(t.phase_goal_outgrown, false);
+  assert.ok(t.phase_goal_50m_s < t.implied_50m_from_stretch_s);
+});

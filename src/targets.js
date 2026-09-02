@@ -154,7 +154,21 @@ function sprintTargets(catalogue, opts = {}) {
   // derived `implied_50m_from_stretch_s`.
   const implied50 = stretch != null ? round1(stretch * 2 + TARGET_STEPS.turn_cost_s) : null;
   const phase25 = phaseTargetFor(currentPhase(catalogue), 'best_25m_sprint_protocol_s');
-  const phase50Goal = phaseTargetFor(currentPhase(catalogue), 'best_50m_equiv_s');
+  // The phase's 50m milestone must sit AHEAD of what today's 25m targets
+  // already imply, or it isn't a goal — it's a number the athlete has passed.
+  // Block-6 report: phase_goal_50m_s was 33.0s while implied_50m was 32.4s and
+  // the standing best 33.1s, i.e. the "goal" was slower than tonight's session
+  // and barely ahead of a result already achieved. When the athlete outgrows
+  // the current phase's milestone, step to the next phase's; if there isn't
+  // one, keep it a genuine stretch beyond today's implied time.
+  const rawPhase50 = phaseTargetFor(currentPhase(catalogue), 'best_50m_equiv_s');
+  let phase50Goal = rawPhase50;
+  let phaseGoalStale = false;
+  if (rawPhase50 != null && implied50 != null && rawPhase50 >= implied50) {
+    phaseGoalStale = true;
+    const next = phaseTargetFor(currentPhase(catalogue) + 1, 'best_50m_equiv_s');
+    phase50Goal = (next != null && next < implied50) ? next : round1(implied50 - 0.5);
+  }
   return {
     beat_25m_s: anchor ?? null,
     stretch_25m_s: stretch,
@@ -163,7 +177,8 @@ function sprintTargets(catalogue, opts = {}) {
     stroke_count_target: TARGET_STEPS.stroke_count_target,
     stroke_count_acceptable: TARGET_STEPS.stroke_count_acceptable,
     phase_25m_target_s: phase25 ?? null,
-    phase_goal_50m_s: phase50Goal ?? null, // long-horizon phase goal — NOT derived from today's 25m
+    phase_goal_50m_s: phase50Goal ?? null, // long-horizon goal — always AHEAD of implied_50m
+    phase_goal_outgrown: phaseGoalStale,   // true when the milestone was passed and had to be stepped
     re_entry: layoff.is_re_entry,          // LLM prompt frames re-entry differently
     days_since_last_pool: layoff.days_since_last_pool,
     pre_layoff_beat_25m_s: layoff.is_re_entry ? rawAnchor : undefined,

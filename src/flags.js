@@ -51,7 +51,27 @@ function round1(n) {
 // max_alactic, and quality-check flags (fade / spread / rest) don't apply.
 // Fallback: if no fast rep exists, no reps qualify.
 const MAX_ALACTIC_TIME_CAP_S = 17.0;   // absolute intensity ceiling
-function sprintReps(intervals) {
+function sprintReps(intervals, planTags = null) {
+  // When the plan tagged its sets, the TAG is authoritative — the heuristic
+  // below is only for untagged/external sessions.
+  //
+  // Without this the analyser re-derived "max effort" from time alone and swept
+  // in build-to-max finish reps: a Sprint Finish tagged `build_finish` at 60s
+  // prescribed rest was flagged "max efforts need ≥120s" when the athlete had
+  // taken 70s — MORE than prescribed — and its 19.6s reps inflated a "2.8s
+  // spread across 8 max reps" when the real max set spanned 1.2s.
+  if (planTags instanceof Map && planTags.size) {
+    const tagged = intervals.filter(i => {
+      const t = planTags.get(i.interval_number);
+      return t?.rep_class != null;
+    });
+    if (tagged.length) {
+      return tagged.filter(i =>
+        !i.is_rest && !isDrillInterval(i) &&
+        planTags.get(i.interval_number).rep_class === 'max_alactic');
+    }
+  }
+
   const candidates = intervals.filter(i =>
     !i.is_rest &&
     !isDrillInterval(i) &&
@@ -106,6 +126,20 @@ function expectedDistances(sets) {
   return out;
 }
 
+// The SET each expected rep came from, parallel to expectedDistances(). Lets a
+// matched interval inherit its own set's rep_class / prescribed rest, rather
+// than a single block-level guess — a Sprint Finish block can hold both
+// build_finish and max_alactic sets.
+function expectedSets(sets) {
+  const out = [];
+  for (const s of sets ?? []) {
+    const reps = Math.max(1, Number(s?.reps) || 1);
+    const dist = Number(s?.distance_m) || 0;
+    if (dist > 0) for (let i = 0; i < reps; i++) out.push(s);
+  }
+  return out;
+}
+
 function walkPlanBlocks(plan, breakdown) {
   const out = [];
   if (!plan || !Array.isArray(plan.blocks) || !Array.isArray(breakdown)) return out;
@@ -116,8 +150,10 @@ function walkPlanBlocks(plan, breakdown) {
     const block = blocks[b];
     const sets = Array.isArray(block.sets) ? block.sets : [];
     const expected = expectedDistances(sets);
+    const expSets = expectedSets(sets);
     const blockVol = expected.reduce((a, d) => a + d, 0) || Number(block.volume_m) || 0;
     const intervals = [];
+    const setForInterval = new Map();   // interval n → the planned set it matched
     let consumed = 0;
     let missedReps = 0;
 
@@ -136,6 +172,7 @@ function walkPlanBlocks(plan, breakdown) {
       while (idx < breakdown.length && e < expected.length) {
         const actual = Number(breakdown[idx].distance_m) || 0;
         if (actual === expected[e]) {
+          setForInterval.set(breakdown[idx].n, expSets[e]);
           intervals.push(breakdown[idx]); consumed += actual; idx++; e++;
           continue;
         }
@@ -147,6 +184,7 @@ function walkPlanBlocks(plan, breakdown) {
         if (j === -1) break;
         missedReps += j - e;
         e = j;
+        setForInterval.set(breakdown[idx].n, expSets[e]);
         intervals.push(breakdown[idx]); consumed += actual; idx++; e++;
       }
       missedReps += Math.max(0, expected.length - e);
@@ -160,6 +198,7 @@ function walkPlanBlocks(plan, breakdown) {
       const nextFirst = nextExpected.length ? nextExpected[0] : null;
       if (e >= expected.length && nextFirst !== lastDist) {
         while (idx < breakdown.length && (Number(breakdown[idx].distance_m) || 0) === lastDist) {
+          setForInterval.set(breakdown[idx].n, expSets[expSets.length - 1]);
           intervals.push(breakdown[idx]); consumed += lastDist; idx++;
         }
       }
@@ -175,7 +214,7 @@ function walkPlanBlocks(plan, breakdown) {
     }
 
     out.push({
-      block, sets, blockVol, intervals, actual_m: consumed,
+      block, sets, blockVol, intervals, actual_m: consumed, setForInterval,
       expected_reps: expected.length, missed_reps: missedReps,
     });
   }
@@ -188,7 +227,7 @@ function walkPlanBlocks(plan, breakdown) {
   if (idx < breakdown.length) {
     const rest = breakdown.slice(idx);
     out.push({
-      block: { name: 'Unmatched' }, sets: [], blockVol: 0,
+      block: { name: 'Unmatched' }, sets: [], blockVol: 0, setForInterval: new Map(),
       intervals: rest,
       actual_m: rest.reduce((s, iv) => s + (Number(iv.distance_m) || 0), 0),
       expected_reps: 0, missed_reps: 0, unmatched: true,
@@ -200,13 +239,24 @@ function walkPlanBlocks(plan, breakdown) {
 export function buildPlanTags(plan, breakdown) {
   const tags = new Map();
   if (!Array.isArray(breakdown) || !breakdown.length) return tags;
-  for (const { block, sets, intervals } of walkPlanBlocks(plan, breakdown)) {
-    // Use the first non-null equipment / rep_class in the block's sets — if
-    // the block has heterogeneous sets, this is a best-effort tag.
-    const equipment = sets.find(x => x && x.equipment)?.equipment ?? null;
-    const repClass = sets.find(x => x && x.rep_class)?.rep_class ?? null;
+  for (const { block, sets, intervals, setForInterval } of walkPlanBlocks(plan, breakdown)) {
+    // Per-SET tags where the sequence matcher identified the exact set, falling
+    // back to the block's first tagged set. Precision matters here: a Sprint
+    // Finish block can hold a build_finish set at 60s rest next to a max_alactic
+    // set at 120s, and tagging both with one block-level guess is what let the
+    // analyser flag a build rep for "max efforts need ≥120s" when the athlete
+    // had actually taken MORE rest than prescribed.
+    const blockEquip = sets.find(x => x && x.equipment)?.equipment ?? null;
+    const blockClass = sets.find(x => x && x.rep_class)?.rep_class ?? null;
     for (const iv of intervals) {
-      tags.set(iv.n, { equipment, rep_class: repClass, block_name: block.name ?? null });
+      const set = setForInterval?.get(iv.n) ?? null;
+      tags.set(iv.n, {
+        equipment: set?.equipment ?? blockEquip,
+        rep_class: set?.rep_class ?? blockClass,
+        prescribed_rest_s: set?.rest_s ?? null,
+        effort: set?.effort ?? null,
+        block_name: block.name ?? null,
+      });
     }
   }
   return tags;
@@ -528,13 +578,13 @@ export function detectTechnical(parsed, opts = {}) {
 
   // ── Sprint-quality markers (from KB research): consistency, velocity fade,
   // and rest adherence across single-length max-effort reps.
-  const reps = sprintReps(intervals);
+  const reps = sprintReps(intervals, opts.planTags);
   if (reps.length >= 3) {
     const times = reps.map(r => r.time_s).filter(t => t != null);
     if (times.length >= 3) {
       const spread = round1(Math.max(...times) - Math.min(...times));
       if (spread >= 1.5) {
-        flags.push(`Sprint pacing inconsistent: ${spread}s spread across ${times.length} max reps (fastest ${Math.min(...times)}s, slowest ${Math.max(...times)}s).`);
+        flags.push(`Sprint pacing inconsistent: ${spread}s spread across ${times.length} max-effort reps (max_alactic only) (fastest ${Math.min(...times)}s, slowest ${Math.max(...times)}s).`);
       }
       const fade = round1(times[times.length - 1] - times[0]);
       // Skip fade flag when the athlete told us the session was aborted — the
@@ -551,7 +601,19 @@ export function detectTechnical(parsed, opts = {}) {
     const SPRINT_REST_MIN_S = 120;
     const REST_FLAG_TOLERANCE = 0.9;
     const restReps = cutShort ? reps.slice(0, -1) : reps;
-    const shortRest = restReps.filter(r => r.rest_after_s != null && r.rest_after_s < SPRINT_REST_MIN_S * REST_FLAG_TOLERANCE);
+    // Never flag a rep whose rest MET OR EXCEEDED what the plan asked for.
+    // The athlete cannot be non-compliant with a prescription they beat: INT 28
+    // took 70s against a 60s prescription and was told "max efforts need ≥120s".
+    const prescribedRest = (r) => {
+      const t = opts.planTags instanceof Map ? opts.planTags.get(r.interval_number) : null;
+      return t?.prescribed_rest_s != null ? Number(t.prescribed_rest_s) : null;
+    };
+    const shortRest = restReps.filter(r => {
+      if (r.rest_after_s == null) return false;
+      const asked = prescribedRest(r);
+      if (asked != null) return r.rest_after_s < asked * REST_FLAG_TOLERANCE;
+      return r.rest_after_s < SPRINT_REST_MIN_S * REST_FLAG_TOLERANCE;
+    });
     if (shortRest.length) {
       // Explicit dedup by interval_number in case the same rep appears twice
       // in any earlier filter step (round-5 feedback: INT 12 shown, INT 8 with
@@ -559,7 +621,8 @@ export function detectTechnical(parsed, opts = {}) {
       const seen = new Set();
       const unique = shortRest.filter(r => (seen.has(r.interval_number) ? false : (seen.add(r.interval_number), true)));
       const detail = unique.map(r => `INT ${r.interval_number} (${Math.round(r.rest_after_s)}s)`).join(', ');
-      flags.push(`Sprint rest too short on ${unique.length} rep(s): ${detail} — max efforts need ≥${SPRINT_REST_MIN_S}s. Short rest blunts speed adaptation and removes quad protection.`);
+      const asked = prescribedRest(unique[0]);
+      flags.push(`Sprint rest too short on ${unique.length} max-effort rep(s): ${detail} — ${asked != null ? `the plan prescribed ${asked}s` : `max efforts need ≥${SPRINT_REST_MIN_S}s`}. Short rest blunts speed adaptation and removes quad protection.`);
     }
   }
 
@@ -611,78 +674,104 @@ export function detectFlags(parsed, catalogue, opts = {}) {
 // exercise against a stored baseline (in `dryland_baselines`) and emits PR /
 // regression flags — the analyser previously ignored dryland performance
 // entirely.
-export function detectDrylandIssues(dryland, baselines = null) {
-  const flags = [];
-  if (!dryland || !Array.isArray(dryland.exercises)) return flags;
-  for (const ex of dryland.exercises) {
-    const name = ex.name ?? '(unnamed)';
-    const reps = Array.isArray(ex.reps_per_set)
-      ? ex.reps_per_set.filter(n => typeof n === 'number' && n > 0)
-      : [];
-    const holds = Array.isArray(ex.duration_s_per_set)
-      ? ex.duration_s_per_set.filter(n => typeof n === 'number' && n > 0)
-      : [];
-    // Outlier / likely-typo check (existing behaviour).
-    if (reps.length >= 3) {
-      const sorted = [...reps].sort((a, b) => a - b);
-      const median = sorted[Math.floor(sorted.length / 2)];
-      const max = Math.max(...reps);
-      if (max > median * 1.5 && max - median >= 5) {
-        flags.push(`Dryland data check: ${name} has a high outlier (${max} vs median ${median} across ${reps.length} sets) — likely a logging typo.`);
-      }
-    }
-    // Baseline compare (round-5). Match by canonical name; a hollow-body-hold
-    // baseline is compared to any exercise whose name includes "hollow body".
-    if (baselines && (reps.length || holds.length)) {
-      const cmp = compareToBaseline(name, reps, holds, baselines);
-      if (cmp) flags.push(cmp);
-    }
-  }
-  // Round-5: surface unestablished carry-forward items so they don't stay
-  // "NOT YET ESTABLISHED" from session to session (bar-hang external rotation
-  // was carried unaddressed from Session 18 to Session 30).
-  if (baselines) {
-    for (const [key, value] of Object.entries(baselines)) {
-      if (typeof value === 'string' && /NOT YET ESTABLISHED/i.test(value)) {
-        flags.push(`Dryland carry-forward: ${key.replace(/_/g, ' ')} still marked "NOT YET ESTABLISHED" — programme it in the next dryland.`);
-      }
-    }
-  }
-  return flags;
+// Canonical key for an exercise name, so "Hollow Body Hold" and
+// "hollow-body hold" share one baseline entry.
+export function drylandKey(name) {
+  return String(name ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
 }
 
-// Compare a single logged exercise to its stored baseline. Returns a PR /
-// regression flag string or null. Matches by fuzzy name — the baseline keys
-// look like `pull_ups_best_set` / `hollow_body_hold_s` while the logged names
-// are "Pull-Ups", "Hollow Body Hold". Only handles a few known families for
-// now; unknown exercises return null (no flag, no false positive).
-function compareToBaseline(name, reps, holds, baselines) {
-  const n = String(name).toLowerCase();
-  const best = reps.length ? Math.max(...reps) : null;
-  const total = reps.length ? reps.reduce((s, x) => s + x, 0) : null;
-  const bestHold = holds.length ? Math.max(...holds) : null;
-  if (/hollow[- ]?body|hollow rocks/.test(n) && bestHold != null) {
-    const base = Number(baselines.hollow_body_hold_s);
-    if (Number.isFinite(base) && bestHold > base) return `Dryland PR: ${name} — best hold ${bestHold}s beats stored baseline ${base}s.`;
-    if (Number.isFinite(base) && bestHold < base * 0.7) return `Dryland regression: ${name} — best hold ${bestHold}s vs baseline ${base}s. Investigate conditions.`;
-  }
-  if (/pull[- ]?ups?/.test(n) && best != null) {
-    const base = Number(baselines.pull_ups_best_set);
-    if (Number.isFinite(base) && best > base) return `Dryland PR: ${name} — best set ${best} reps beats stored baseline ${base}.`;
-  }
-  if (/dips?/.test(n) && best != null) {
-    const base = Number(baselines.dips_best_set);
-    if (Number.isFinite(base) && best > base) return `Dryland PR: ${name} — best set ${best} reps beats stored baseline ${base}.`;
-  }
-  if (/v[- ]?ups?/.test(n) && total != null) {
-    const base = Number(baselines.v_ups_total_3_sets_session18) ?? Number(baselines.v_ups_total_3_sets_session14);
-    if (Number.isFinite(base) && total > base) return `Dryland PR: ${name} — total ${total} reps beats stored baseline ${base}.`;
-  }
-  if (/dead[- ]?hang/.test(n) && bestHold != null) {
-    const base = Number(baselines.dead_hang_duration_s);
-    if (Number.isFinite(base) && bestHold > base) return `Dryland PR: ${name} — best hold ${bestHold}s beats stored baseline ${base}s.`;
-  }
+// Highest value the athlete actually produced this session, and what kind it is.
+function sessionBest(ex) {
+  const nums = (a) => (Array.isArray(a) ? a.filter(n => typeof n === 'number' && n > 0) : []);
+  const reps = nums(ex.reps_per_set);
+  const holds = nums(ex.duration_s_per_set);
+  const weights = nums(ex.weight_kg_per_set);
+  if (holds.length) return { kind: 'hold', value: Math.max(...holds), unit: 's', reps, holds, weights };
+  if (reps.length) return { kind: 'reps', value: Math.max(...reps), unit: ' reps', reps, holds, weights };
   return null;
+}
+
+// Top of a prescribed range like "3×8-10" / "8-10 reps" / "30-40s".
+function prescribedTop(prescription) {
+  const m = String(prescription ?? '').match(/(\d+)\s*[-–]\s*(\d+)/);
+  return m ? Number(m[2]) : null;
+}
+
+/**
+ * Dryland analysis. Returns BOTH the coaching flags and the baseline updates to
+ * persist — previously it only read `dryland_baselines` and never wrote them,
+ * so `updated_session_id` sat at Session 18 while three drylands went by and a
+ * hollow-body hold of 30s against a 20s baseline was never recorded.
+ *
+ * Every logged exercise produces a finding: a PR, a miss, or "first baseline".
+ * A dryland session returning no findings at all was a repeat complaint.
+ *
+ * @returns {{ flags: string[], updates: object }}
+ */
+export function detectDrylandIssues(dryland, baselines = null) {
+  const flags = [];
+  const updates = {};
+  if (!dryland || !Array.isArray(dryland.exercises)) return { flags, updates };
+  const base = baselines ?? {};
+
+  for (const ex of dryland.exercises) {
+    const name = ex.name ?? '(unnamed)';
+    const best = sessionBest(ex);
+
+    // Outlier / likely-typo check (existing behaviour).
+    if (best?.reps.length >= 3) {
+      const sorted = [...best.reps].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      const max = Math.max(...best.reps);
+      if (max > median * 1.5 && max - median >= 5) {
+        flags.push(`Dryland data check: ${name} has a high outlier (${max} vs median ${median} across ${best.reps.length} sets) — likely a logging typo.`);
+      }
+    }
+    if (!best) continue;
+
+    const key = `${drylandKey(name)}_best`;
+    const stored = Number(base[key]);
+    const had = Number.isFinite(stored);
+
+    if (!had) {
+      flags.push(`Dryland baseline established: ${name} — ${best.value}${best.unit} (first recorded benchmark).`);
+      updates[key] = best.value;
+    } else if (best.value > stored) {
+      flags.push(`Dryland PR: ${name} — ${best.value}${best.unit} beats the stored ${stored}${best.unit}.`);
+      updates[key] = best.value;
+    } else if (best.value < stored * 0.8) {
+      flags.push(`Dryland regression: ${name} — ${best.value}${best.unit} vs a stored ${stored}${best.unit}. Worth a look at conditions/fatigue.`);
+    } else {
+      flags.push(`Dryland held: ${name} — ${best.value}${best.unit} against a stored best of ${stored}${best.unit}.`);
+    }
+
+    // Cleared the top of the prescribed range → say it should be progressed.
+    const top = prescribedTop(ex.prescription);
+    if (top != null && best.reps.length && Math.min(...best.reps) >= top) {
+      flags.push(`Dryland progression due: ${name} — every set hit or beat the top of the prescribed range (${ex.prescription}). Add load or reps next time.`);
+    }
+    if (best.weights.length) {
+      const wKey = `${drylandKey(name)}_weight_kg`;
+      const wStored = Number(base[wKey]);
+      const wBest = Math.max(...best.weights);
+      if (!Number.isFinite(wStored) || wBest > wStored) updates[wKey] = wBest;
+    }
+  }
+
+  // Carry-forward items that were never programmed.
+  for (const [key, value] of Object.entries(base)) {
+    if (typeof value === 'string' && /NOT YET ESTABLISHED/i.test(value)) {
+      flags.push(`Dryland carry-forward: ${key.replace(/_/g, ' ')} still marked "NOT YET ESTABLISHED" — programme it in the next dryland.`);
+    }
+  }
+
+  if (!flags.length && dryland.exercises.length) {
+    flags.push('Dryland logged but no per-set values were recorded — enter reps/holds so progress can be tracked.');
+  }
+  return { flags, updates };
 }
 
 // ──────────────────────────────────────────────────────────────────────────
