@@ -193,6 +193,59 @@ const POOL_TEMPLATES = {
         { name: 'Cool-Down', cue_key: 'cooldown', sets: [{ reps: 8, distance_m: 25, effort: 'easy', rest_s: 0, breathing: 'every-5' }] },
       ],
     },
+
+    // ── Phase-2 race_pace rotation (added v39). race_pace is the HEADLINE
+    // subtype from Phase 2 on — ~12 of 18 pool sessions — and the library had
+    // exactly ONE template, so every Gemini failure produced an identical
+    // session. Same staleness the sprint pool had before v31.
+    {
+      id: 'race_pace_broken_50s',
+      archetype_id: 'broken_50s',
+      blocks: [
+        { name: 'Warm-Up', cue_key: 'warmup', sets: [{ reps: 4, distance_m: 100, effort: 'easy', rest_s: 15, rep_class: 'aerobic' }] },
+        { name: 'Drill Block', cue_key: 'turn_focus', sets: [{ reps: 8, distance_m: 25, effort: 'drill', rest_s: 25, drill: '3 strokes then flip', rep_class: 'drill' }] },
+        { name: 'Priming Set', cue_key: 'priming', sets: [{ reps: 4, distance_m: 25, effort: 'build 70-100%', rest_s: 90, rep_class: 'build_finish' }] },
+        { name: 'Main Set — Broken 50s', cue_key: 'speed_endurance', sets: [
+          { reps: 8, distance_m: 50, effort: 'near-max, broken at the 25 (pause 10s mid-rep)', rest_s: 150, rep_class: 'speed_endurance' },
+        ] },
+        { name: 'Race Simulation', cue_key: 'race_sim', sets: [{ reps: 4, distance_m: 50, effort: 'near-max', rest_s: 180, rep_class: 'speed_endurance' }] },
+        { name: 'Aerobic Flush', cue_key: 'recovery_main', sets: [{ reps: 3, distance_m: 100, effort: 'easy', rest_s: 20, rep_class: 'aerobic' }] },
+        { name: 'Cool-Down', cue_key: 'cooldown', sets: [{ reps: 8, distance_m: 25, effort: 'easy', rest_s: 0, breathing: 'every-5', rep_class: 'aerobic' }] },
+      ],
+    },
+    {
+      id: 'race_pace_goal_tempo_25s',
+      archetype_id: 'race_pace_25s',
+      blocks: [
+        { name: 'Warm-Up', cue_key: 'warmup', sets: [{ reps: 4, distance_m: 100, effort: 'easy', rest_s: 15, rep_class: 'aerobic' }] },
+        { name: 'Kick Block', cue_key: 'kick', sets: [{ reps: 6, distance_m: 50, effort: 'controlled flutter kick (board)', rest_s: 25, rep_class: 'aerobic' }] },
+        { name: 'Priming Set', cue_key: 'priming', sets: [{ reps: 4, distance_m: 25, effort: 'build 70-100%', rest_s: 90, rep_class: 'build_finish' }] },
+        { name: 'Main Set — Race-Pace 25s', cue_key: 'race_pace_25', sets: [
+          { reps: 12, distance_m: 25, effort: 'hold your goal-50 split', rest_s: 120, rep_class: 'speed_endurance' },
+        ] },
+        { name: 'Race Simulation', cue_key: 'race_sim', sets: [{ reps: 4, distance_m: 50, effort: 'near-max', rest_s: 180, rep_class: 'speed_endurance' }] },
+        { name: 'Aerobic Flush', cue_key: 'recovery_main', sets: [{ reps: 3, distance_m: 100, effort: 'easy', rest_s: 20, rep_class: 'aerobic' }] },
+        { name: 'Cool-Down', cue_key: 'cooldown', sets: [{ reps: 8, distance_m: 25, effort: 'easy', rest_s: 0, breathing: 'every-5', rep_class: 'aerobic' }] },
+      ],
+    },
+    {
+      id: 'race_pace_pyramid',
+      archetype_id: 'sprint_pyramid',
+      blocks: [
+        { name: 'Warm-Up', cue_key: 'warmup', sets: [{ reps: 4, distance_m: 100, effort: 'easy', rest_s: 15, rep_class: 'aerobic' }] },
+        { name: 'Drill Block', cue_key: 'drill_catch', sets: [{ reps: 8, distance_m: 25, effort: 'drill', rest_s: 25, drill: 'catch-up + fist', rep_class: 'drill' }] },
+        { name: 'Priming Set', cue_key: 'priming', sets: [{ reps: 4, distance_m: 25, effort: 'build 70-100%', rest_s: 90, rep_class: 'build_finish' }] },
+        { name: 'Main Set — Race Pyramid', cue_key: 'race_sim', sets: [
+          { reps: 2, distance_m: 25, effort: 'max', rest_s: 120, rep_class: 'max_alactic' },
+          { reps: 2, distance_m: 50, effort: 'max', rest_s: 150, rep_class: 'speed_endurance' },
+          { reps: 2, distance_m: 75, effort: 'max', rest_s: 180, rep_class: 'speed_endurance' },
+          { reps: 2, distance_m: 50, effort: 'max', rest_s: 150, rep_class: 'speed_endurance' },
+          { reps: 2, distance_m: 25, effort: 'max', rest_s: 120, rep_class: 'max_alactic' },
+        ] },
+        { name: 'Aerobic Flush', cue_key: 'recovery_main', sets: [{ reps: 4, distance_m: 100, effort: 'easy', rest_s: 20, rep_class: 'aerobic' }] },
+        { name: 'Cool-Down', cue_key: 'cooldown', sets: [{ reps: 10, distance_m: 25, effort: 'easy', rest_s: 0, breathing: 'every-5', rep_class: 'aerobic' }] },
+      ],
+    },
   ],
 
   recovery: [

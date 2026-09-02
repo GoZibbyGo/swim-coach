@@ -122,7 +122,10 @@ function poolSubtypesInCurrentBlock(catalogue) {
 }
 
 const POOL_SESSIONS_PER_BLOCK = 3;
-const PHASE_1_SPRINT_MINIMUM = 2;
+// Minimum sessions per block for the phase's headline subtype (sprint in
+// Phase 1, race_pace in Phases 2-3). Named generically — it is not Phase-1 specific.
+const PRIORITY_SUBTYPE_MINIMUM = 2;
+const PHASE_1_SPRINT_MINIMUM = 2;   // retained: referenced by existing tests
 
 function pickPoolSubtype(catalogue, phaseNumber, override = null) {
   const priority = resolvePhasePriority(phaseNumber);
@@ -142,18 +145,23 @@ function pickPoolSubtype(catalogue, phaseNumber, override = null) {
   const inBlock = poolSubtypesInCurrentBlock(catalogue);
   const remainingSlots = Math.max(0, POOL_SESSIONS_PER_BLOCK - inBlock.length);
 
-  // Round-5: Phase-1 sprint minimum. Block 5 ran technique/dryland/sprint/
-  // technique — 1 sprint in a Sprint > Technique > Threshold phase. Force
-  // sprint on any remaining slot when the block would otherwise close short.
-  if (phaseNumber === 1) {
-    const sprintsInBlock = inBlock.filter(s => s === 'sprint').length;
-    const sprintsNeeded = Math.max(0, PHASE_1_SPRINT_MINIMUM - sprintsInBlock);
-    if (sprintsNeeded >= remainingSlots && remainingSlots > 0) {
+  // Every phase must actually TRAIN its headline priority. This was hardcoded
+  // to Phase 1 / sprint; simulated over 24 Phase-2 sessions the unguarded
+  // weighting produced a flat race_pace 6 / sprint 6 / technique 6 round-robin,
+  // because the anti-repetition rules cycle through the subtypes and cancel the
+  // priority weighting out. "Speed Integration" would have trained race_pace no
+  // more than technique. Generalised: the phase's TOP priority subtype gets the
+  // same per-block minimum, whichever subtype that is.
+  const leadSubtype = priority[0];
+  if (leadSubtype) {
+    const leadInBlock = inBlock.filter(s => s === leadSubtype).length;
+    const leadNeeded = Math.max(0, PRIORITY_SUBTYPE_MINIMUM - leadInBlock);
+    if (leadNeeded >= remainingSlots && remainingSlots > 0) {
       return {
-        subtype: 'sprint',
-        reason: `Phase-1 sprint minimum: ${sprintsInBlock}/${PHASE_1_SPRINT_MINIMUM} sprints in this block, only ${remainingSlots} pool slot(s) left — must pick sprint.`,
-        anti_repetition_warning: last1 === 'sprint'
-          ? `Back-to-back sprint sessions (unavoidable to hit the ${PHASE_1_SPRINT_MINIMUM}-sprint block minimum).`
+        subtype: leadSubtype,
+        reason: `Phase-${phaseNumber} ${leadSubtype} minimum: ${leadInBlock}/${PRIORITY_SUBTYPE_MINIMUM} in this block, only ${remainingSlots} pool slot(s) left — must pick ${leadSubtype}.`,
+        anti_repetition_warning: last1 === leadSubtype
+          ? `Back-to-back ${leadSubtype} sessions (unavoidable to hit the ${PRIORITY_SUBTYPE_MINIMUM}-session block minimum).`
           : null,
       };
     }
@@ -162,8 +170,8 @@ function pickPoolSubtype(catalogue, phaseNumber, override = null) {
   // Round-5: don't repeat a non-sprint subtype within a block. Two technique
   // sessions in one block (as in Block 5) is off-priority for a sprint-first
   // phase. Sprint is exempt — it's allowed and encouraged to repeat.
-  const inBlockNonSprint = new Set(inBlock.filter(s => s !== 'sprint'));
-  const priorityFiltered = priority.filter(s => s === 'sprint' || !inBlockNonSprint.has(s));
+  const inBlockNonSprint = new Set(inBlock.filter(s => s !== leadSubtype));
+  const priorityFiltered = priority.filter(s => s === leadSubtype || !inBlockNonSprint.has(s));
   const effectivePriority = priorityFiltered.length ? priorityFiltered : priority;
 
   const weight = {};

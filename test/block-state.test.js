@@ -301,3 +301,53 @@ if (existsSync(realCataloguePath)) {
 } else {
   test('real catalogue not found — skipping integration test', { skip: true }, () => {});
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Phase-2 readiness: the per-block minimum must follow the PHASE's headline
+// subtype, not a hardcoded "sprint". Simulated over 24 Phase-2 sessions the
+// unguarded weighting produced a flat race_pace 6 / sprint 6 / technique 6
+// round-robin — "Speed Integration" training race_pace no more than technique.
+
+function selfPlay(phase, n = 24) {
+  let sessions = [], block = 1, pool = 0, dry = 0, id = 500;
+  const picks = [];
+  for (let i = 0; i < n; i++) {
+    const cat = {
+      training_phase: { current: phase },
+      weekly_block_tracking: { current_block_number: block, current_block_pool_count: pool, current_block_dryland_count: dry },
+      sessions,
+    };
+    const d = determineNextSession(cat);
+    picks.push(d.type === 'pool' ? d.subtype : 'DRY');
+    sessions = [{ id: id--, date: `2026-09-0${1 + (i % 9)}`, type: d.type, subtype: d.subtype, block_number: block }, ...sessions];
+    if (d.type === 'pool') pool++; else dry++;
+    if (pool >= 3 && dry >= 1) { block++; pool = 0; dry = 0; }
+  }
+  const count = s => picks.filter(p => p === s).length;
+  return { picks, count };
+}
+
+test('Phase 2 leads with race_pace, the way Phase 1 leads with sprint', () => {
+  const p2 = selfPlay(2);
+  assert.ok(p2.count('race_pace') > p2.count('sprint'),
+    `race_pace ${p2.count('race_pace')} must exceed sprint ${p2.count('sprint')} in Speed Integration`);
+  assert.ok(p2.count('sprint') >= p2.count('technique'));
+  assert.ok(p2.count('race_pace') >= 6, 'the headline subtype must actually get trained');
+});
+
+test('generalising the minimum did not disturb Phase 1', () => {
+  const p1 = selfPlay(1);
+  assert.ok(p1.count('sprint') > p1.count('technique'));
+  assert.ok(p1.count('technique') >= p1.count('threshold'));
+  assert.equal(p1.count('race_pace'), 0, 'race_pace is not a Phase-1 subtype');
+});
+
+test('every phase gets at least 2 of its headline subtype per block', () => {
+  for (const phase of [1, 2]) {
+    const { picks } = selfPlay(phase, 8);
+    const lead = phase === 1 ? 'sprint' : 'race_pace';
+    const firstBlock = picks.slice(0, 4);   // 3 pool + 1 dryland
+    assert.ok(firstBlock.filter(p => p === lead).length >= 2,
+      `phase ${phase} block 1 should hold >=2 ${lead}, got ${JSON.stringify(firstBlock)}`);
+  }
+});
