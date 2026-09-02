@@ -426,7 +426,9 @@ test('buildPlanReconciliation marks a genuinely short block, not a compliant one
   ];
   const { rows } = buildPlanReconciliation(plan, breakdown);
   assert.match(rows[0].status, /swum as prescribed/, 'full main set must not be flagged');
-  assert.match(rows[1].status, /−150m vs plan/, `cool-down should show the shortfall, got ${rows[1].status}`);
+  // Reports the rep count as well as the metres — a shortfall the athlete can act on.
+  assert.match(rows[1].status, /2\/8 prescribed reps matched/, `cool-down should show the shortfall, got ${rows[1].status}`);
+  assert.match(rows[1].status, /−150m/);
 });
 
 test('buildPlanReconciliation returns empty (not a crash) with no plan or no breakdown', () => {
@@ -469,8 +471,16 @@ test('detectPlanDeviations flags a cool-down swap (8×25 → 4×50)', () => {
     { n: 8, distance_m: 50, time_s: 60 }, { n: 9, distance_m: 50, time_s: 60 },
   ];
   const flags = detectPlanDeviations(plan, breakdown);
-  assert.ok(flags.some(f => /Plan deviation: Cool-down.*8×25.*4×50/.test(f)),
-    `expected cool-down deviation, got: ${JSON.stringify(flags)}`);
+  // Reported as two FACTS rather than one inference. The engine can see that
+  // the prescribed 8×25 has no matching reps and that 4×50 was swum outside any
+  // block — it cannot actually see that one was substituted for the other, and
+  // claiming so is the kind of unfounded "you swapped things" assertion the
+  // athlete objected to. The main set, swum correctly, stays unflagged.
+  assert.ok(flags.some(f => /Cool-down — prescribed 8 rep\(s\), none matching recorded/.test(f)),
+    `expected the prescribed cool-down to be reported missing, got: ${JSON.stringify(flags)}`);
+  assert.ok(flags.some(f => /4×50m swum but matching no prescribed block/.test(f)),
+    `expected the unmatched 4×50 to be surfaced, got: ${JSON.stringify(flags)}`);
+  assert.ok(!flags.some(f => /Main/.test(f)), 'the correctly-swum main set must not be flagged');
 });
 
 test('detectPlanDeviations stays quiet when plan is honoured exactly', () => {
@@ -513,3 +523,101 @@ if (existsSync(csvPath) && existsSync(realCatPath)) {
 } else {
   test('session 17 real-data flags — skipping (files not found)', { skip: true }, () => {});
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Regression: the block-boundary drift the athlete caught (2026-08-28).
+// A 500m warm-up written as 4×100 + 4×25 was truncated at 450m by a
+// `consumed < blockVol * 0.9` guard, spilling its last 2×25 into the next
+// block and shifting every boundary after it — reported as "warm-up 450m",
+// a 4×50 primer rendered as "2×25 + 3×50", and main sets that looked
+// reordered. It still said "swum as prescribed", so it was confidently wrong.
+
+const DRIFT_PLAN = { blocks: [
+  { name: 'Warm-up', sets: [{ reps: 4, distance_m: 100 }, { reps: 4, distance_m: 25 }] }, // 500m
+  { name: 'Pre-Main Primer', sets: [{ reps: 4, distance_m: 50 }] },                        // 200m
+  { name: 'Main Set', sets: [{ reps: 8, distance_m: 50 }] },                               // 400m
+  { name: 'Cool-down', sets: [{ reps: 8, distance_m: 25 }] },                              // 200m
+] };
+
+function swim(spec) {
+  let n = 1; const out = [];
+  for (const [count, dist] of spec) for (let i = 0; i < count; i++) out.push({ n: n++, distance_m: dist, time_s: dist });
+  return out;
+}
+
+test('a mixed-distance block that was swum in FULL reconciles in full', () => {
+  const rows = buildPlanReconciliation(DRIFT_PLAN,
+    swim([[4, 100], [4, 25], [4, 50], [8, 50], [8, 25]])).rows;
+  assert.equal(rows[0].actual_m, 500, `warm-up must be 500m, not 450m — got ${rows[0].actual_m}`);
+  assert.equal(rows[0].actual, '4×100m + 4×25m');
+  assert.match(rows[0].status, /swum as prescribed/);
+});
+
+test('the truncated warm-up no longer spills its last reps into the next block', () => {
+  const rows = buildPlanReconciliation(DRIFT_PLAN,
+    swim([[4, 100], [4, 25], [4, 50], [8, 50], [8, 25]])).rows;
+  assert.equal(rows[1].actual, '4×50m',
+    `primer must be 4×50m, not "2×25m + 3×50m" — got ${rows[1].actual}`);
+  assert.ok(!/25m/.test(rows[1].actual), 'no 25s may leak from the warm-up into the primer');
+});
+
+test('boundary drift does not cascade into the later blocks', () => {
+  const rows = buildPlanReconciliation(DRIFT_PLAN,
+    swim([[4, 100], [4, 25], [4, 50], [8, 50], [8, 25]])).rows;
+  assert.equal(rows[2].actual, '8×50m');
+  assert.equal(rows[3].actual, '8×25m', `cool-down must be 8×25m — got ${rows[3].actual}`);
+  assert.equal(rows[3].actual_m, 200);
+});
+
+test('a genuinely short block is still reported, with the rep count', () => {
+  const rows = buildPlanReconciliation(DRIFT_PLAN,
+    swim([[4, 100], [4, 25], [4, 50], [5, 50], [8, 25]])).rows;
+  assert.match(rows[2].status, /5\/8 prescribed reps matched/);
+  assert.match(rows[2].status, /−150m/);
+});
+
+test('"swum as prescribed" now requires the REPS to match, not just the metres', () => {
+  // Same total metres, wrong rep composition (4×50 instead of 8×25).
+  const plan = { blocks: [{ name: 'Cool-down', sets: [{ reps: 8, distance_m: 25 }] }] };
+  const rows = buildPlanReconciliation(plan, swim([[4, 50]])).rows;
+  assert.ok(!/swum as prescribed/.test(rows[0].status),
+    `matching volume with the wrong reps must not read as compliant: ${rows[0].status}`);
+});
+
+test('ambiguous boundaries between same-distance blocks are declared, not hidden', () => {
+  const { text } = buildPlanReconciliation(DRIFT_PLAN,
+    swim([[4, 100], [4, 25], [4, 50], [8, 50], [8, 25]]));
+  assert.match(text, /Boundary inferred/);
+  assert.match(text, /Pre-Main Primer → Main Set/);
+  assert.match(text, /do not assert reps were moved between them/);
+});
+
+test('extra reps are absorbed only when the next block expects a different distance', () => {
+  // 10×50 swum against an 8×50 main set, cool-down is 25s → safe to absorb.
+  const rows = buildPlanReconciliation(DRIFT_PLAN,
+    swim([[4, 100], [4, 25], [4, 50], [10, 50], [8, 25]])).rows;
+  assert.equal(rows[2].actual, '10×50m');
+  assert.equal(rows[3].actual, '8×25m', 'the cool-down must still be found intact');
+});
+
+test('a fully-swum session emits NO plan-deviation flags (single source of truth)', () => {
+  // detectPlanDeviations used to keep its own copy of the drifting walk, so a
+  // correctly-swum session got a clean reconciliation table AND contradictory
+  // "Plan deviation" flags built from a different block assignment.
+  const breakdown = swim([[4, 100], [4, 25], [4, 50], [8, 50], [8, 25]]);
+  const flags = detectPlanDeviations({ ...DRIFT_PLAN, total_volume_m: 1300 }, breakdown);
+  assert.deepEqual(flags, [], `a session swum as prescribed must raise nothing, got: ${JSON.stringify(flags)}`);
+});
+
+test('deviation flags agree with the reconciliation table', () => {
+  const breakdown = swim([[4, 100], [4, 25], [4, 50], [5, 50], [8, 25]]);
+  const rows = buildPlanReconciliation(DRIFT_PLAN, breakdown).rows;
+  const flags = detectPlanDeviations({ ...DRIFT_PLAN, total_volume_m: 1300 }, breakdown);
+  // The table says the main set is 5/8; the flag must say the same thing.
+  assert.match(rows[2].status, /5\/8/);
+  assert.ok(flags.some(f => /Main Set — prescribed 8×50m, actual 5×50m/.test(f)),
+    `flags must match the table, got: ${JSON.stringify(flags)}`);
+  // ...and must NOT invent deviations in the blocks that were swum correctly.
+  assert.ok(!flags.some(f => /Warm-up|Pre-Main Primer|Cool-down/.test(f)),
+    `correctly-swum blocks must not be flagged, got: ${JSON.stringify(flags)}`);
+});

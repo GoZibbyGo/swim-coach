@@ -94,22 +94,105 @@ function fiftyReps(intervals) {
 // one entry per plan block (with an empty interval list once the actual data
 // runs out). Both buildPlanTags and buildPlanReconciliation ride on this so
 // the two can never disagree about which rep belonged to which block.
+// A block's prescribed per-rep distance sequence: 4×100 + 4×25 →
+// [100,100,100,100,25,25,25,25].
+function expectedDistances(sets) {
+  const out = [];
+  for (const s of sets ?? []) {
+    const reps = Math.max(1, Number(s?.reps) || 1);
+    const dist = Number(s?.distance_m) || 0;
+    if (dist > 0) for (let i = 0; i < reps; i++) out.push(dist);
+  }
+  return out;
+}
+
 function walkPlanBlocks(plan, breakdown) {
   const out = [];
   if (!plan || !Array.isArray(plan.blocks) || !Array.isArray(breakdown)) return out;
+  const blocks = plan.blocks;
   let idx = 0;
-  for (const block of plan.blocks) {
+
+  for (let b = 0; b < blocks.length; b++) {
+    const block = blocks[b];
     const sets = Array.isArray(block.sets) ? block.sets : [];
-    const blockVol = sets.reduce((t, x) => t + (Number(x?.reps) || 1) * (Number(x?.distance_m) || 0), 0)
-      || Number(block.volume_m) || 0;
+    const expected = expectedDistances(sets);
+    const blockVol = expected.reduce((a, d) => a + d, 0) || Number(block.volume_m) || 0;
     const intervals = [];
     let consumed = 0;
-    while (idx < breakdown.length && blockVol > 0 && consumed < blockVol * 0.9) {
-      intervals.push(breakdown[idx]);
-      consumed += Number(breakdown[idx].distance_m) || 0;
-      idx++;
+    let missedReps = 0;
+
+    if (expected.length) {
+      // Match on the DISTANCE SEQUENCE, not cumulative volume.
+      //
+      // This used to consume while `consumed < blockVol * 0.9`, which silently
+      // truncated any block whose last reps were short: a 500m warm-up written
+      // as 4×100 + 4×25 stopped at 450m, so its final 2×25 spilled into the
+      // next block and every later boundary shifted with them. The athlete saw
+      // "warm-up 450m" for a 500m warm-up, a primer reported as "2×25 + 3×50"
+      // that was really 4×50, and main sets that looked reordered. The table
+      // still said "swum as prescribed", so it was confidently wrong and the
+      // debrief narrated the corruption as fact.
+      let e = 0;
+      while (idx < breakdown.length && e < expected.length) {
+        const actual = Number(breakdown[idx].distance_m) || 0;
+        if (actual === expected[e]) {
+          intervals.push(breakdown[idx]); consumed += actual; idx++; e++;
+          continue;
+        }
+        // Not the next prescribed distance. If this distance appears LATER in
+        // the same block, the athlete skipped some reps — jump to it. If it
+        // appears nowhere in the remainder, this interval belongs to the next
+        // block and this one is finished.
+        const j = expected.indexOf(actual, e + 1);
+        if (j === -1) break;
+        missedReps += j - e;
+        e = j;
+        intervals.push(breakdown[idx]); consumed += actual; idx++; e++;
+      }
+      missedReps += Math.max(0, expected.length - e);
+
+      // Extra reps beyond the prescription (athlete added a few). Absorb them
+      // only when the NEXT block expects a different distance — otherwise we
+      // could steal its opening reps, which is the same cascade in reverse.
+      const lastDist = expected[expected.length - 1];
+      const nextExpected = expectedDistances(
+        Array.isArray(blocks[b + 1]?.sets) ? blocks[b + 1].sets : []);
+      const nextFirst = nextExpected.length ? nextExpected[0] : null;
+      if (e >= expected.length && nextFirst !== lastDist) {
+        while (idx < breakdown.length && (Number(breakdown[idx].distance_m) || 0) === lastDist) {
+          intervals.push(breakdown[idx]); consumed += lastDist; idx++;
+        }
+      }
+    } else if (blockVol > 0) {
+      // Volume-only block (no per-set detail): fall back to filling by volume,
+      // but never past the prescription.
+      while (idx < breakdown.length
+        && consumed + (Number(breakdown[idx].distance_m) || 0) <= blockVol) {
+        consumed += Number(breakdown[idx].distance_m) || 0;
+        intervals.push(breakdown[idx]);
+        idx++;
+      }
     }
-    out.push({ block, sets, blockVol, intervals, actual_m: consumed });
+
+    out.push({
+      block, sets, blockVol, intervals, actual_m: consumed,
+      expected_reps: expected.length, missed_reps: missedReps,
+    });
+  }
+
+  // Intervals that matched no block — e.g. the athlete swapped a prescribed
+  // 8×25 cool-down for 4×50, so nothing fits the 25m pattern. Strict matching
+  // must not silently DROP them (that loses real swimming from the debrief) and
+  // must not guess them into a block either (that is the cascade we just fixed).
+  // Report them as their own row instead.
+  if (idx < breakdown.length) {
+    const rest = breakdown.slice(idx);
+    out.push({
+      block: { name: 'Unmatched' }, sets: [], blockVol: 0,
+      intervals: rest,
+      actual_m: rest.reduce((s, iv) => s + (Number(iv.distance_m) || 0), 0),
+      expected_reps: 0, missed_reps: 0, unmatched: true,
+    });
   }
   return out;
 }
@@ -144,7 +227,7 @@ export function buildPlanReconciliation(plan, breakdown) {
   if (!plan || !Array.isArray(plan.blocks) || !Array.isArray(breakdown) || !breakdown.length) {
     return { rows, text: '' };
   }
-  for (const { block, sets, blockVol, intervals, actual_m } of walkPlanBlocks(plan, breakdown)) {
+  for (const { block, sets, blockVol, intervals, actual_m, expected_reps, missed_reps, unmatched } of walkPlanBlocks(plan, breakdown)) {
     const prescribed = sets.length
       ? sets.map(s => `${Number(s.reps) || 1}×${Number(s.distance_m) || 0}m`
           + `${s.effort ? ` ${s.effort}` : ''}`
@@ -164,11 +247,18 @@ export function buildPlanReconciliation(plan, breakdown) {
       ? [...counts.entries()].map(([d, c]) => `${c}×${d}m`).join(' + ')
       : 'nothing recorded';
     const delta = actual_m - blockVol;
-    // Tolerance: one 25m length, or 10% of the block, whichever is larger.
-    const tol = Math.max(25, blockVol * 0.1);
-    const status = !ns.length ? '⚠ no matching intervals recorded'
-      : Math.abs(delta) <= tol ? '✓ swum as prescribed'
-      : `⚠ ${delta > 0 ? '+' : '−'}${Math.abs(delta)}m vs plan`;
+    // "As prescribed" now requires the REPS to line up, not just the metres.
+    // Volume alone let a mis-bounded block report a correct-looking total while
+    // holding the wrong reps — the failure the athlete caught.
+    const repsMatch = expected_reps > 0
+      ? (intervals.length === expected_reps && missed_reps === 0)
+      : Math.abs(delta) <= Math.max(25, blockVol * 0.1);
+    const status = unmatched
+      ? '⚠ swum but matches no prescribed block (swapped or added work)'
+      : !ns.length ? '⚠ prescribed but no matching reps recorded'
+      : (repsMatch && delta === 0) ? '✓ swum as prescribed'
+      : repsMatch ? `✓ all reps present (${delta > 0 ? '+' : '−'}${Math.abs(delta)}m vs plan)`
+      : `⚠ ${intervals.length}/${expected_reps} prescribed reps matched${delta ? `, ${delta > 0 ? '+' : '−'}${Math.abs(delta)}m` : ''}`;
     rows.push({
       block_name: block.name ?? '(block)', prescribed, prescribed_m: blockVol,
       interval_range: intRange, actual: actualDesc, actual_m, status,
@@ -177,7 +267,26 @@ export function buildPlanReconciliation(plan, breakdown) {
   const text = rows.map(r =>
     `- ${r.block_name}: prescribed ${r.prescribed} (${r.prescribed_m}m) → ${r.interval_range}, actually swam ${r.actual} (${r.actual_m}m) — ${r.status}`
   ).join('\n');
-  return { rows, text };
+
+  // Honesty caveat. Intervals are assigned to blocks by matching the prescribed
+  // distance sequence, so where two ADJACENT blocks use the same rep distance
+  // (e.g. a 4×50 primer straight into an 8×50 main set) the boundary between
+  // them is inferred, not measured — if reps were skipped there, the split
+  // between those two blocks may be off even though the totals reconcile.
+  // Say so once rather than letting the debrief assert a false certainty.
+  const ambiguous = [];
+  for (let i = 0; i < rows.length - 1; i++) {
+    const a = expectedDistances(plan.blocks[i]?.sets);
+    const b2 = expectedDistances(plan.blocks[i + 1]?.sets);
+    if (a.length && b2.length && a[a.length - 1] === b2[0]) {
+      ambiguous.push(`${rows[i].block_name} → ${rows[i + 1].block_name}`);
+    }
+  }
+  const caveat = ambiguous.length
+    ? `\n(Boundary inferred where consecutive blocks share a rep distance: ${ambiguous.join('; ')}. `
+      + 'Totals are reliable; the exact split between those blocks is not — do not assert reps were moved between them.)'
+    : '';
+  return { rows, text: text + caveat };
 }
 
 // Given a "INT 33.1" or "INT 22" style context and a Map of plan tags,
@@ -614,35 +723,37 @@ export function detectPlanDeviations(plan, breakdown, opts = {}) {
   // blocks — rendering "prescribed 12×100m" against a 4×100+4×50+4×25 warm-up
   // was a repeat false-positive. We only compare like-for-like blocks; the
   // total-volume check above still catches gross deviations.
-  let idx = 0;
-  for (const block of plan.blocks) {
-    const sets = Array.isArray(block.sets) ? block.sets : [];
-    const distanceSet = new Set(sets.map(x => Number(x?.distance_m)).filter(x => Number.isFinite(x) && x > 0));
-    const expectedReps = sets.reduce((s, x) => s + (Number(x?.reps) || 1), 0);
-    const expectedDist = distanceSet.size === 1 ? [...distanceSet][0] : null;
-    const blockVol = sets.reduce((s, x) => s + (Number(x?.reps) || 1) * (Number(x?.distance_m) || 0), 0)
-      || Number(block.volume_m) || 0;
-    if (!expectedReps || !expectedDist || blockVol === 0 || idx >= breakdown.length) {
-      // Advance idx past this block's volume anyway so subsequent blocks align.
-      let consumed = 0;
-      while (idx < breakdown.length && consumed < blockVol * 0.9) { consumed += Number(breakdown[idx].distance_m) || 0; idx++; }
+  // Ride on the SAME walkPlanBlocks the reconciliation table uses. This used to
+  // keep its own copy of the old `consumed < blockVol * 0.9` walk, so it drifted
+  // exactly the way the table did — and worse, the debrief received a correct
+  // table alongside contradictory "Plan deviation" flags derived from a
+  // different, wrong block assignment. One walk, one answer.
+  for (const { block, sets, intervals, expected_reps, unmatched } of walkPlanBlocks(plan, breakdown)) {
+    if (unmatched) {
+      const byDist = new Map();
+      for (const iv of intervals) {
+        const d = Number(iv.distance_m) || 0;
+        byDist.set(d, (byDist.get(d) ?? 0) + 1);
+      }
+      flags.push(`Plan deviation: ${[...byDist.entries()].map(([d, c]) => `${c}×${d}m`).join(' + ')} swum but matching no prescribed block — a set was swapped or added.`);
       continue;
     }
-    let consumed = 0;
-    let count = 0;
-    let firstDist = null;
-    while (idx < breakdown.length && consumed < blockVol * 0.9) {
-      const iv = breakdown[idx];
-      if (firstDist == null) firstDist = Number(iv.distance_m) || null;
-      consumed += Number(iv.distance_m) || 0;
-      count++;
-      idx++;
+    const distanceSet = new Set(sets.map(x => Number(x?.distance_m)).filter(x => Number.isFinite(x) && x > 0));
+    if (expected_reps && !intervals.length) {
+      flags.push(`Plan deviation: ${block.name ?? '(block)'} — prescribed ${expected_reps} rep(s), none matching recorded.`);
+      continue;
     }
-    if (!count) continue;
-    const repsMismatch = Math.abs(count - expectedReps) >= 2;
+    // Mixed-distance blocks are skipped: rendering "prescribed 12×100m" against
+    // a 4×100 + 4×50 + 4×25 warm-up was a repeat false positive. The
+    // total-volume check above still catches gross deviations.
+    const expectedDist = distanceSet.size === 1 ? [...distanceSet][0] : null;
+    if (!expected_reps || !expectedDist || !intervals.length) continue;
+    const count = intervals.length;
+    const firstDist = Number(intervals[0].distance_m) || null;
+    const repsMismatch = Math.abs(count - expected_reps) >= 2;
     const distMismatch = firstDist != null && firstDist !== expectedDist;
     if (repsMismatch || distMismatch) {
-      flags.push(`Plan deviation: ${block.name ?? '(block)'} — prescribed ${expectedReps}×${expectedDist}m, actual ${count}×${firstDist ?? '?'}m.`);
+      flags.push(`Plan deviation: ${block.name ?? '(block)'} — prescribed ${expected_reps}×${expectedDist}m, actual ${count}×${firstDist ?? '?'}m.`);
     }
   }
   return flags;
