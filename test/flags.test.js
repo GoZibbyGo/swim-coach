@@ -726,3 +726,74 @@ test('untagged (external) sessions still fall back to the time heuristic', () =>
   assert.ok(r.flags.some(f => /^Sprint rest too short/.test(f)),
     'with no plan tags the heuristic must still protect the athlete');
 });
+
+// ──────────────────────────────────────────────────────────────────────────
+// Same-distance block boundaries (athlete report, 2026-09-06): a 50 from a
+// 10×50 main set was filed under the recovery flush. Main and flush shared a
+// rep distance, so the matcher filled main to its exact prescribed count and
+// dumped the surplus into the next block — the main set read "10×50 ✓ as
+// prescribed" while an 11th HARD rep showed up as an extra easy one.
+//
+// Resolved by counting (the next block can only account for what it
+// prescribes) plus effort/time at the boundary. Deliberately NOT by rest:
+// measured on real Garmin exports the last rep of every block carries a
+// TRANSITION rest, not its set's prescribed rest, so rest is meaningless at
+// exactly the boundary being decided.
+
+const SAME_DIST_PLAN = { blocks: [
+  { name: 'Warm-Up',       sets: [{ reps: 4, distance_m: 100, rest_s: 15 }] },
+  { name: 'Main Set',      sets: [{ reps: 10, distance_m: 50, rest_s: 150 }] },
+  { name: 'Aerobic Flush', sets: [{ reps: 4, distance_m: 50, rest_s: 20 }] },
+  { name: 'Cool-Down',     sets: [{ reps: 8, distance_m: 25, rest_s: 0 }] },
+] };
+
+function swimTimed(spec) {
+  let n = 1; const out = [];
+  for (const [count, dist, time, rest] of spec) {
+    for (let i = 0; i < count; i++) out.push({ n: n++, distance_m: dist, time_s: time, rest_after_s: rest });
+  }
+  return out;
+}
+const rowsFor = spec => buildPlanReconciliation(SAME_DIST_PLAN, swimTimed(spec)).rows;
+
+test('an 11th hard 50 stays in the main set instead of landing in the flush', () => {
+  const r = rowsFor([[4, 100, 100, 15], [11, 50, 32, 150], [4, 50, 45, 20], [8, 25, 22, 0]]);
+  assert.equal(r[1].actual, '11×50m', `the extra hard rep belongs to the main set, got ${r[1].actual}`);
+  assert.match(r[1].status, /11\/10 prescribed reps matched/);
+  assert.equal(r[2].actual, '4×50m', `the flush must stay at its prescribed 4, got ${r[2].actual}`);
+  assert.match(r[2].status, /swum as prescribed/);
+});
+
+test('a short main set does not steal the flush opening rep (the mirror case)', () => {
+  const r = rowsFor([[4, 100, 100, 15], [9, 50, 32, 150], [4, 50, 45, 20], [8, 25, 22, 0]]);
+  assert.equal(r[1].actual, '9×50m');
+  assert.match(r[1].status, /9\/10 prescribed reps matched/);
+  assert.equal(r[2].actual, '4×50m', 'the flush must keep all four of its reps');
+});
+
+test('end-of-set fade is not mistaken for a block boundary', () => {
+  // Last two main reps 15% slower — real fade, still the main set.
+  const r = rowsFor([[4, 100, 100, 15], [8, 50, 32, 150], [2, 50, 37, 150], [4, 50, 45, 20], [8, 25, 22, 0]]);
+  assert.equal(r[1].actual, '10×50m', 'a fading rep is still a main-set rep');
+  assert.match(r[1].status, /swum as prescribed/);
+  assert.equal(r[2].actual, '4×50m');
+});
+
+test('the main set gets the benefit of the doubt from either side', () => {
+  // Primer BEFORE the main set: extras belong to the main set, not the primer.
+  const plan = { blocks: [
+    { name: 'Pre-Main Primer', sets: [{ reps: 4, distance_m: 50, rest_s: 60 }] },
+    { name: 'Main Set',        sets: [{ reps: 8, distance_m: 50, rest_s: 150 }] },
+  ] };
+  const rows = buildPlanReconciliation(plan, swimTimed([[4, 50, 45, 60], [10, 50, 32, 150]])).rows;
+  assert.equal(rows[0].actual, '4×50m', '"Pre-Main Primer" must not be read as the main set');
+  assert.equal(rows[1].actual, '10×50m', 'the surplus belongs to the main set');
+});
+
+test('rest is NOT used at the boundary — a transition rest must not move a rep', () => {
+  // Identical swim, but the 11th rep carries a flush-like 20s transition rest.
+  // Rest-based matching would hand it to the flush; time keeps it in the main.
+  const r = rowsFor([[4, 100, 100, 15], [10, 50, 32, 150], [1, 50, 32, 20], [4, 50, 45, 20], [8, 25, 22, 0]]);
+  assert.equal(r[1].actual, '11×50m',
+    `a hard rep stays hard regardless of the rest recorded after it, got ${r[1].actual}`);
+});

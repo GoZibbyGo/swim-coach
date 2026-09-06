@@ -151,6 +151,20 @@ function walkPlanBlocks(plan, breakdown) {
     const sets = Array.isArray(block.sets) ? block.sets : [];
     const expected = expectedDistances(sets);
     const expSets = expectedSets(sets);
+    // Mirror of the surplus case: when the athlete swims FEWER reps than
+    // prescribed and the next block uses the same distance, this block would
+    // fill its quota by stealing the next block's opening reps (9 hard 50s
+    // reported as 10, and the flush short by one).
+    //
+    // Counting can't resolve this one — the quota is legitimately unmet — so
+    // use TIME, which is a property of the rep itself. Deliberately NOT rest:
+    // measured on real exports the last rep of every block carries a TRANSITION
+    // rest, not its set's prescribed rest (a 4×100 warm-up on ~15s recorded
+    // 18.9 / 16.9 / 18.2 / 56.7), so rest is meaningless at exactly the
+    // boundary being decided. Tolerance is wide enough that genuine end-of-set
+    // fade stays in the block (16.8s → 19.6s is ~17%) while an easy flush rep
+    // against race-pace work (32s → 45s is ~40%) does not.
+    const SAME_EFFORT_TOLERANCE = 0.25;
     const blockVol = expected.reduce((a, d) => a + d, 0) || Number(block.volume_m) || 0;
     const intervals = [];
     const setForInterval = new Map();   // interval n → the planned set it matched
@@ -169,9 +183,25 @@ function walkPlanBlocks(plan, breakdown) {
       // still said "swum as prescribed", so it was confidently wrong and the
       // debrief narrated the corruption as fact.
       let e = 0;
+      const nextLeadDist = expectedDistances(
+        Array.isArray(blocks[b + 1]?.sets) ? blocks[b + 1].sets : [])[0] ?? null;
+      const claimedMeanTime = () => {
+        const ts = intervals.map(i => Number(i.time_s)).filter(Number.isFinite);
+        return ts.length ? ts.reduce((a, c) => a + c, 0) / ts.length : null;
+      };
+      // Only engages at an ambiguous boundary with a usable time signal;
+      // otherwise behaviour is exactly as before.
+      const isThisBlocksEffort = (iv, distNow) => {
+        if (nextLeadDist !== distNow) return true;
+        const t = Number(iv?.time_s);
+        const ref = claimedMeanTime();
+        if (!Number.isFinite(t) || ref == null || ref <= 0) return true;
+        return Math.abs(t - ref) / ref <= SAME_EFFORT_TOLERANCE;
+      };
       while (idx < breakdown.length && e < expected.length) {
         const actual = Number(breakdown[idx].distance_m) || 0;
         if (actual === expected[e]) {
+          if (!isThisBlocksEffort(breakdown[idx], actual)) break;
           setForInterval.set(breakdown[idx].n, expSets[e]);
           intervals.push(breakdown[idx]); consumed += actual; idx++; e++;
           continue;
@@ -192,14 +222,61 @@ function walkPlanBlocks(plan, breakdown) {
       // Extra reps beyond the prescription (athlete added a few). Absorb them
       // only when the NEXT block expects a different distance — otherwise we
       // could steal its opening reps, which is the same cascade in reverse.
+      // Extra reps beyond the prescription.
+      //
+      // When the next block expects a DIFFERENT distance, any same-distance
+      // extras are unambiguously ours. When it expects the SAME distance — a
+      // 10×50 main set into a 4×50 recovery flush — this used to bail out
+      // entirely and hand the surplus to the flush, so an 11th HARD 50 was
+      // filed as an extra easy one while the main set still read
+      // "10×50 ✓ as prescribed".
+      //
+      // Resolve it by COUNTING rather than by guessing from rest or pace: of
+      // the same-distance reps still unclaimed, the next block can only account
+      // for as many as it prescribes. Anything beyond that is surplus and
+      // belongs to this block.
+      //
+      // (Rest looks like the obvious signal here and is the wrong one. Measured
+      // on real Garmin exports, the LAST rep of every block carries a
+      // TRANSITION rest rather than its set's prescribed rest — a 4×100 warm-up
+      // on ~15s recorded 18.9 / 16.9 / 18.2 / **56.7**, a drill set on ~25s
+      // recorded 27.2 / 22.8 / 24.2 / **129.4**. Rest is the gap BETWEEN reps,
+      // so the boundary rep — the very one in question — has a rest that
+      // matched neither block's prescription.)
       const lastDist = expected[expected.length - 1];
-      const nextExpected = expectedDistances(
-        Array.isArray(blocks[b + 1]?.sets) ? blocks[b + 1].sets : []);
+      const nextSets = Array.isArray(blocks[b + 1]?.sets) ? blocks[b + 1].sets : [];
+      const nextExpected = expectedDistances(nextSets);
       const nextFirst = nextExpected.length ? nextExpected[0] : null;
-      if (e >= expected.length && nextFirst !== lastDist) {
-        while (idx < breakdown.length && (Number(breakdown[idx].distance_m) || 0) === lastDist) {
+      if (e >= expected.length && lastDist != null) {
+        let available = 0;
+        for (let k = idx; k < breakdown.length
+          && (Number(breakdown[k].distance_m) || 0) === lastDist; k++) available++;
+        // Leading run of same-distance reps the NEXT block is entitled to.
+        let nextClaim = 0;
+        if (nextFirst === lastDist) {
+          while (nextClaim < nextExpected.length && nextExpected[nextClaim] === lastDist) nextClaim++;
+        }
+        let surplus = Math.max(0, available - nextClaim);
+        // Counting caps the surplus but cannot say WHICH of the two adjacent
+        // blocks the athlete actually extended. Coaching reality settles it:
+        // extra hard reps happen in the MAIN set, not in a primer or a recovery
+        // flush. So the main block gets the benefit of the doubt — whether it
+        // sits before the ambiguous neighbour (10×50 main → 4×50 flush: the
+        // 11th hard 50 is the athlete's, not the flush's) or after it
+        // (4×50 primer → 8×50 main: the extras belong to the main set).
+        if (nextClaim > 0) {
+          // "Pre-Main Primer" contains "Main" but is not the main set —
+          // exclude it explicitly or the primer claims the main set's reps.
+          const isMain = (blk) => {
+            const nm = String(blk?.name ?? '');
+            return /main/i.test(nm) && !/pre[-\s]?main/i.test(nm);
+          };
+          if (!isMain(block) && isMain(blocks[b + 1])) surplus = 0;
+        }
+        while (surplus > 0 && idx < breakdown.length
+          && (Number(breakdown[idx].distance_m) || 0) === lastDist) {
           setForInterval.set(breakdown[idx].n, expSets[expSets.length - 1]);
-          intervals.push(breakdown[idx]); consumed += lastDist; idx++;
+          intervals.push(breakdown[idx]); consumed += lastDist; idx++; surplus--;
         }
       }
     } else if (blockVol > 0) {

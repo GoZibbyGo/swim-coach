@@ -41,6 +41,29 @@ reaches the analyser.
 
 ---
 
+## 0.1 How Garmin records rest (measured, not assumed)
+
+Verified against a real export (`fixtures/activity_22919208781.csv`) because a
+wrong assumption here mis-assigns reps to the wrong block.
+
+- **Rest rows FOLLOW the interval they belong to.** `rest_after_s` semantics are
+  correct as implemented.
+- **Garmin can emit SEVERAL consecutive rest rows for one gap** (interval 1 shows
+  `0:02.8` then `0:16.1` = 18.9s of actual rest). The parser sums them; reading
+  only the first would under-record rest and fire false "rest too short" flags.
+- **⚠️ The LAST rep of every block carries a TRANSITION rest, not its set's
+  prescribed rest.** Measured: a 4×100 warm-up prescribing ~15s recorded
+  `18.9 / 16.9 / 18.2 / **56.7**`; a drill set on ~25s recorded
+  `27.2 / 22.8 / 24.2 / **129.4**`. Rest is the gap *between* reps, so the final
+  rep has no next rep to rest before — its `rest_after_s` is just the gap until
+  the next block starts.
+- **Consequence: never use `rest_after_s` to decide which block a boundary rep
+  belongs to.** It is meaningless at exactly the point being decided. Use rep
+  TIME (a property of the rep itself) or a counting argument instead. Rest is
+  still valid for judging within-set compliance on non-final reps.
+
+---
+
 ## 1. Energy systems for the 50m freestyle
 
 The 50m free is **~65–75% anaerobic**, and at race intensity the aerobic contribution is as little as **~4%** — the swimmer essentially does not need oxygen to finish the race [source: https://www.frontiersin.org/journals/sports-and-active-living/articles/10.3389/fspor.2025.1751687/full] [source: https://www.yourswimlog.com/sprint-freestyle-breathing/]. Two anaerobic systems matter:
