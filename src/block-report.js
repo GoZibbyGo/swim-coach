@@ -7,6 +7,8 @@
 // ANALYSIS are sound and returns a feedback file of code-change instructions
 // (see docs/coaching-project-brief.md). Pure + testable; no DOM, no I/O.
 
+import { keptDescriptors } from './renderer.js';
+
 function fmt(v) { return v == null ? '—' : String(v); }
 
 function planText(plan) {
@@ -23,7 +25,10 @@ function planText(plan) {
         // so "1×400m · 0s rest" / "1×400m · 30s rest" reads as a generator
         // glitch. (See renderer.js for the same fix in the in-app card.)
         const showRest = s.rest_s != null && (s.reps == null || s.reps > 1);
-        return [reps, s.effort, showRest ? `${s.rest_s}s rest` : '', s.drill, s.equipment, s.breathing].filter(Boolean).join(' · ');
+        // Drop descriptors that only restate another one (see renderer.js).
+        const keep = keptDescriptors(s);
+        const d = (f) => (keep.has(f) ? s[f] : '');
+        return [reps, d('effort'), showRest ? `${s.rest_s}s rest` : '', d('drill'), d('equipment'), d('breathing')].filter(Boolean).join(' · ');
       }).join(' | ');
       lines.push(`- **${b.name}** (${fmt(b.volume_m)}m): ${sets}${b.cue ? ` — _${b.cue}_` : ''}${b.target ? ` → ${b.target}` : ''}`);
     } else if (Array.isArray(b.exercises)) {

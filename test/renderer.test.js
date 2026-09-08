@@ -123,3 +123,79 @@ test('a set with real rest still renders as reps', () => {
   assert.match(md, /2 min rest/);
   assert.ok(!/continuous/.test(md));
 });
+
+// ── Descriptor de-duplication ─────────────────────────────────────────────
+// Reported from a real Phase-2 technique session: the 8×50 drill/fast set
+// rendered as "8×50m 25m Fingertip Drag / 25m Fast Free, 25m drill / 25m fast",
+// saying the same thing twice — once named, once generically.
+
+function renderOneSet(set) {
+  return renderSessionMarkdown({
+    type: 'pool', subtype: 'technique', phase: 2, block_number: 1, session_in_block: 1,
+    total_volume_m: (set.reps ?? 1) * (set.distance_m ?? 0),
+    blocks: [{ name: 'Main Set', volume_m: (set.reps ?? 1) * (set.distance_m ?? 0), sets: [set] }],
+  });
+}
+
+test('a generic effort that only restates the drill is dropped', () => {
+  const md = renderOneSet({
+    reps: 8, distance_m: 50, rest_s: 60,
+    drill: '25m Fingertip Drag / 25m Fast Free',
+    effort: '25m drill / 25m fast',
+  });
+  assert.match(md, /8×50m 25m Fingertip Drag \/ 25m Fast Free/);
+  assert.ok(!/25m drill \/ 25m fast/.test(md), 'generic restatement should not render');
+});
+
+test('the specific descriptor survives whichever field it is in', () => {
+  // Same pair, fields swapped — the named drill must still win.
+  const md = renderOneSet({
+    reps: 8, distance_m: 50, rest_s: 60,
+    drill: '25m drill / 25m fast',
+    effort: '25m Fingertip Drag / 25m Fast Free',
+  });
+  assert.match(md, /25m Fingertip Drag \/ 25m Fast Free/);
+  assert.ok(!/25m drill \/ 25m fast/.test(md));
+});
+
+test('an identical drill and effort render once', () => {
+  // Counted PER LINE — the renderer prints each set twice by design (once in
+  // the block overview, once in the detail list).
+  const md = renderOneSet({ reps: 4, distance_m: 50, rest_s: 20, drill: 'Catch-Up', effort: 'Catch-Up' });
+  const setLines = md.split('\n').filter(l => /4×50m/.test(l));
+  assert.ok(setLines.length > 0, 'expected the set to render');
+  for (const line of setLines) {
+    assert.equal((line.match(/Catch-Up/g) ?? []).length, 1, `repeated descriptor in: ${line}`);
+  }
+});
+
+test('equipment already named in the drill is dropped', () => {
+  const md = renderOneSet({
+    reps: 6, distance_m: 100, rest_s: 20,
+    drill: 'Pull with buoy, high elbow', equipment: 'pull buoy',
+  });
+  assert.match(md, /Pull with buoy, high elbow/);
+  assert.ok(!/, pull buoy/.test(md));
+});
+
+// Guards: descriptors that genuinely add something must NOT be collapsed.
+test('an effort that adds information is kept alongside the drill', () => {
+  const md = renderOneSet({ reps: 4, distance_m: 50, rest_s: 15, drill: 'Catch-Up', effort: 'RPE 5' });
+  assert.match(md, /Catch-Up, RPE 5/);
+});
+
+test('an effort word is not treated as generic', () => {
+  // "6×50m kickboard, controlled" — "controlled" is the prescription, not filler.
+  const md = renderOneSet({ reps: 6, distance_m: 50, rest_s: 20, equipment: 'kickboard', effort: 'controlled' });
+  assert.match(md, /kickboard, controlled/);
+});
+
+test('unrelated descriptors sharing only a distance are both kept', () => {
+  const md = renderOneSet({ reps: 4, distance_m: 25, rest_s: 90, drill: '25m Catch-Up', effort: '25m hard' });
+  assert.match(md, /25m Catch-Up, 25m hard/);
+});
+
+test('build efforts survive next to a drill', () => {
+  const md = renderOneSet({ reps: 4, distance_m: 50, rest_s: 15, drill: 'Fingertip Drag', effort: 'build 70-100%' });
+  assert.match(md, /Fingertip Drag, build 70-100%/);
+});

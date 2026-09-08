@@ -15,14 +15,84 @@ function humanizeFlags(flags) {
   return (flags ?? []).map(humanizeFlag).join(', ');
 }
 
+// ── Descriptor de-duplication ─────────────────────────────────────────────
+// A set carries up to four free-text descriptors (drill / equipment / effort /
+// breathing) and the LLM regularly says the same thing in two of them, once
+// specifically and once generically:
+//
+//   drill:  "25m Fingertip Drag / 25m Fast Free"
+//   effort: "25m drill / 25m fast"
+//
+// which rendered as one line reads like two different instructions. Prompt
+// rules alone have not held for this class of problem, so the redundancy is
+// removed here — every surface that describes a set goes through
+// `keptDescriptors`, so the athlete's card, the block report and the analysis
+// prompt all say it once.
+
+// Bare category words that carry no information beyond "there is a drill here"
+// — a descriptor built only from these plus words already said elsewhere is a
+// restatement. Effort words (fast, easy, controlled, build) are NOT generic:
+// "kickboard, controlled" must keep its "controlled".
+const GENERIC_DESCRIPTOR_TOKENS = new Set([
+  'drill', 'drills', 'swim', 'free', 'freestyle', 'then', 'as', 'above', 'per',
+  'rep', 'reps', 'length', 'lengths',
+]);
+
+function descTokens(s) {
+  return String(s ?? '')
+    .toLowerCase()
+    .replace(/(\d+)\s*m\b/g, '$1')      // "25m" / "25 m" → "25", so both sides match
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+// True when `b` adds nothing over `a`: every token of b is either already in a
+// or a bare category word, AND at least one token genuinely overlaps (so two
+// unrelated descriptors are never collapsed).
+function subsumes(a, b) {
+  const at = new Set(descTokens(a));
+  const bt = descTokens(b);
+  if (!at.size || !bt.length) return false;
+  let overlap = 0;
+  for (const t of bt) {
+    if (at.has(t)) { overlap++; continue; }
+    if (GENERIC_DESCRIPTOR_TOKENS.has(t)) continue;
+    return false;
+  }
+  return overlap > 0;
+}
+
+const DESCRIPTOR_FIELDS = ['drill', 'equipment', 'effort', 'breathing'];
+
+/**
+ * Which of a set's descriptor fields should actually be rendered. Returns a
+ * Set of field names. Order-independent: when two descriptors say the same
+ * thing the MORE SPECIFIC one survives, whichever field it happens to be in.
+ */
+export function keptDescriptors(set) {
+  const kept = [];
+  for (const field of DESCRIPTOR_FIELDS) {
+    const val = set?.[field];
+    if (!val) continue;
+    if (kept.some(k => subsumes(set[k], val))) continue;     // redundant → drop
+    const idx = kept.findIndex(k => subsumes(val, set[k]));  // richer → replace
+    if (idx !== -1) kept[idx] = field;
+    else kept.push(field);
+  }
+  return new Set(kept);
+}
+
 function setLine(set) {
   const reps = set.reps ?? 1;
   const dist = set.distance_m ?? 0;
+  const keep = keptDescriptors(set);
   const bits = [];
-  if (set.drill) bits.push(set.drill);
-  if (set.equipment) bits.push(set.equipment);
-  if (set.effort) bits.push(set.effort);
-  if (set.breathing) bits.push(`breathing ${set.breathing}`);
+  if (set.drill && keep.has('drill')) bits.push(set.drill);
+  if (set.equipment && keep.has('equipment')) bits.push(set.equipment);
+  if (set.effort && keep.has('effort')) bits.push(set.effort);
+  if (set.breathing && keep.has('breathing')) bits.push(`breathing ${set.breathing}`);
   const desc = bits.length ? ` ${bits.join(', ')}` : '';
 
   // "4×50m — no rest, continuous" is just 200m continuous, and reading it as

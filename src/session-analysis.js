@@ -7,6 +7,7 @@
 
 import { callGemini } from './gemini.js';
 import { buildPlanReconciliation } from './flags.js';
+import { keptDescriptors } from './renderer.js';
 
 // The session's PRESCRIBED plan, rendered verbatim for the prompt. Without
 // this the LLM only ever saw a flat interval list and had to reconstruct the
@@ -16,13 +17,16 @@ function planText(session) {
   if (!Array.isArray(blocks) || !blocks.length) return null;
   return blocks.map(b => {
     const sets = Array.isArray(b.sets) ? b.sets : [];
-    const setStr = sets.map(s =>
-      `${Number(s.reps) || 1}×${Number(s.distance_m) || 0}m`
-      + `${s.effort ? ` ${s.effort}` : ''}`
-      + `${s.rest_s != null ? ` @${s.rest_s}s rest` : ''}`
-      + `${s.drill ? ` (${s.drill})` : ''}`
-      + `${s.equipment ? ` [${s.equipment}]` : ''}`
-    ).join(' + ');
+    const setStr = sets.map(s => {
+      // Say each descriptor once — a set whose effort only restates its drill
+      // reaches the LLM as one instruction, not two (see renderer.js).
+      const keep = keptDescriptors(s);
+      return `${Number(s.reps) || 1}×${Number(s.distance_m) || 0}m`
+        + `${s.effort && keep.has('effort') ? ` ${s.effort}` : ''}`
+        + `${s.rest_s != null ? ` @${s.rest_s}s rest` : ''}`
+        + `${s.drill && keep.has('drill') ? ` (${s.drill})` : ''}`
+        + `${s.equipment && keep.has('equipment') ? ` [${s.equipment}]` : ''}`;
+    }).join(' + ');
     return `- ${b.name ?? '(block)'} (${b.volume_m ?? '?'}m): ${setStr || '—'}`
       + `${b.cue ? ` — cue: ${b.cue}` : ''}${b.target ? ` — target: ${b.target}` : ''}`;
   }).join('\n');
